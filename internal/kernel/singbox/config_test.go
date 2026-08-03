@@ -778,6 +778,27 @@ func TestBuildRoutes_StructuredCustomRulesRemainFirst(t *testing.T) {
 	}
 }
 
+func TestBuildRoutes_TranslatesLegacyGoogleWarpRule(t *testing.T) {
+	route := buildRoutes(nil, nil, []map[string]any{{
+		"domain":      []string{"geosite:google"},
+		"outboundTag": "warp",
+	}})
+	allRules := route["rules"].([]M)
+	if len(allRules) < 1 {
+		t.Fatal("expected translated Google route")
+	}
+	if got := allRules[0]["outbound"]; got != "warp" {
+		t.Fatalf("outbound = %v, want warp", got)
+	}
+	if _, exists := allRules[0]["outboundTag"]; exists {
+		t.Fatal("legacy outboundTag should not remain in sing-box rule")
+	}
+	suffixes, ok := allRules[0]["domain_suffix"].([]string)
+	if !ok || len(suffixes) == 0 || suffixes[0] != "google.com" {
+		t.Fatalf("unexpected Google suffixes: %#v", allRules[0]["domain_suffix"])
+	}
+}
+
 // --- TLS Config ---
 
 func TestBuildTLSConfig_WithCert(t *testing.T) {
