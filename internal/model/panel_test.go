@@ -9,6 +9,26 @@ import (
 )
 
 func TestNodeSpecFromPanelValidated(t *testing.T) {
+	t.Run("promote legacy flat Shadowsocks outbound for both kernels", func(t *testing.T) {
+		node, err := NodeSpecFromPanelValidated(&panel.NodeConfig{
+			Protocol: "tuic", ServerPort: 8443,
+			CustomOutbounds: []panel.OutboundConfig{{
+				Tag: "awssg", Protocol: "shadowsocks",
+				Settings: map[string]any{"address": "13.228.73.171", "port": 8388, "method": "chacha20-ietf-poly1305", "password": "secret"},
+			}},
+		}, config.KernelConfig{Type: "singbox"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		outbound := node.CustomOutbounds[0]
+		if !outbound.Normalized || outbound.Settings["server"] != "13.228.73.171" || outbound.Settings["server_port"] != 8388 {
+			t.Fatalf("legacy outbound not normalized: %#v", outbound)
+		}
+		if _, exists := outbound.Settings["address"]; exists {
+			t.Fatal("legacy address field must be removed")
+		}
+	})
+
 	t.Run("accept normalized templates and Reality route profiles", func(t *testing.T) {
 		node, err := NodeSpecFromPanelValidated(&panel.NodeConfig{
 			Protocol: "vless", TLS: 2, ServerPort: 443, ConfigVersion: 7,

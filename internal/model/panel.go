@@ -59,11 +59,35 @@ func NodeSpecFromPanel(nc *panel.NodeConfig) *NodeSpec {
 
 	outbounds := make([]OutboundConfig, 0, len(nc.CustomOutbounds)+len(nc.OutboundTemplates))
 	for _, outbound := range nc.CustomOutbounds {
+		protocol := strings.ToLower(strings.TrimSpace(outbound.Protocol))
+		settings := cloneAnyMap(outbound.Settings)
+		normalized := false
+		if protocol == "shadowsocks" || protocol == "socks" || protocol == "socks5" {
+			server, hasServer := settings["server"]
+			if !hasServer {
+				server, hasServer = settings["address"]
+			}
+			serverPort, hasPort := settings["server_port"]
+			if !hasPort {
+				serverPort, hasPort = settings["port"]
+			}
+			if hasServer && hasPort {
+				settings["server"] = server
+				settings["server_port"] = serverPort
+				delete(settings, "address")
+				delete(settings, "port")
+				if protocol == "socks5" {
+					protocol = "socks"
+				}
+				normalized = true
+			}
+		}
 		outbounds = append(outbounds, OutboundConfig{
-			Tag:      outbound.Tag,
-			Protocol: outbound.Protocol,
-			Settings: cloneAnyMap(outbound.Settings),
-			ProxyTag: outbound.ProxyTag,
+			Tag:        outbound.Tag,
+			Protocol:   protocol,
+			Settings:   settings,
+			ProxyTag:   outbound.ProxyTag,
+			Normalized: normalized,
 		})
 	}
 	for _, outbound := range nc.OutboundTemplates {
