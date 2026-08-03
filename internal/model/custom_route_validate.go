@@ -81,6 +81,7 @@ func ValidateCustomRouteRules(rules []CustomRouteRule, kernelType string, availa
 
 func hasRouteMatch(match RouteMatch) bool {
 	for _, values := range [][]string{
+		match.RuleSets,
 		match.Domains,
 		match.DomainSuffixes,
 		match.IPCIDRs,
@@ -103,6 +104,7 @@ func ensureRouteMatcherSupported(index int, kernelType string, matcherSupport ma
 		return nil
 	}
 	checks := map[string][]string{
+		"rule_sets":       match.RuleSets,
 		"domains":         match.Domains,
 		"domain_suffixes": match.DomainSuffixes,
 		"ip_cidrs":        match.IPCIDRs,

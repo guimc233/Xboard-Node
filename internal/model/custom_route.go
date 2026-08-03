@@ -8,6 +8,7 @@ type CustomRouteRule struct {
 }
 
 type RouteMatch struct {
+	RuleSets       []string
 	Domains        []string
 	DomainSuffixes []string
 	IPCIDRs        []string
@@ -40,6 +41,7 @@ func cloneCustomRouteRules(src []CustomRouteRule) []CustomRouteRule {
 
 func cloneRouteMatch(src RouteMatch) RouteMatch {
 	return RouteMatch{
+		RuleSets:       cloneStringSlice(src.RuleSets),
 		Domains:        cloneStringSlice(src.Domains),
 		DomainSuffixes: cloneStringSlice(src.DomainSuffixes),
 		IPCIDRs:        cloneStringSlice(src.IPCIDRs),

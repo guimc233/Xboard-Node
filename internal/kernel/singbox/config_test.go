@@ -836,24 +836,45 @@ func TestBuildRoutes_StructuredCustomRulesRemainFirst(t *testing.T) {
 	}
 }
 
-func TestBuildRoutes_TranslatesLegacyGoogleWarpRule(t *testing.T) {
+func TestBuildRoutes_UnsupportedGeositeNeverBecomesCatchAll(t *testing.T) {
 	route := buildRoutes(nil, nil, []map[string]any{{
-		"domain":      []string{"geosite:google"},
-		"outboundTag": "warp",
+		"domain":      []string{"geosite:not-supported"},
+		"outboundTag": "proxy",
 	}})
-	allRules := route["rules"].([]M)
-	if len(allRules) < 1 {
-		t.Fatal("expected translated Google route")
+	first := route["rules"].([]M)[0]
+	if first["outbound"] != "proxy" {
+		t.Fatalf("outbound = %v, want proxy", first["outbound"])
 	}
-	if got := allRules[0]["outbound"]; got != "warp" {
-		t.Fatalf("outbound = %v, want warp", got)
+	domains, ok := first["domain"].([]string)
+	if !ok || len(domains) != 1 || domains[0] != "geosite:not-supported" {
+		t.Fatalf("unsupported selector guard missing: %#v", first)
 	}
-	if _, exists := allRules[0]["outboundTag"]; exists {
-		t.Fatal("legacy outboundTag should not remain in sing-box rule")
+}
+
+func TestBuildConfig_UsesPassedRemoteRuleSet(t *testing.T) {
+	nc := model.NodeSpecFromPanel(&panel.NodeConfig{
+		Protocol: "vless", ServerPort: 443,
+		RuleSets: []panel.RuleSet{{
+			Tag: "ai-non-cn",
+			Singbox: &panel.SingboxRuleSet{
+				Type: "remote", Format: "binary",
+				URL: "https://rules.example/ai-non-cn.srs", UpdateInterval: "1d",
+			},
+		}},
+		RouteRulesV2: []panel.CustomRouteRule{{
+			Match:  panel.RouteMatch{RuleSets: []string{"ai-non-cn"}},
+			Action: panel.RouteAction{Type: "route", Target: "direct"},
+		}},
+	})
+	cfg := buildConfig(config.KernelConfig{Type: "singbox", ConfigDir: "/tmp/xboard", LogLevel: "warn"}, nc, nil, kernel.TLSCert{})
+	route := cfg["route"].(M)
+	definitions := route["rule_set"].([]M)
+	if len(definitions) != 1 || definitions[0]["tag"] != "ai-non-cn" || definitions[0]["url"] != "https://rules.example/ai-non-cn.srs" {
+		t.Fatalf("unexpected rule-set definitions: %#v", definitions)
 	}
-	suffixes, ok := allRules[0]["domain_suffix"].([]string)
-	if !ok || len(suffixes) == 0 || suffixes[0] != "google.com" {
-		t.Fatalf("unexpected Google suffixes: %#v", allRules[0]["domain_suffix"])
+	first := route["rules"].([]M)[0]
+	if !reflect.DeepEqual(first["rule_set"], []string{"ai-non-cn"}) || first["outbound"] != "direct" {
+		t.Fatalf("unexpected rule-set route: %#v", first)
 	}
 }
 

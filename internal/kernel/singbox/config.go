@@ -58,13 +58,17 @@ func buildConfig(kcfg config.KernelConfig, nc *model.NodeSpec, users []model.Use
 		cfg["inbounds"] = []M{inbound}
 	}
 
-	// Merge panel routes and static config routes
-	cfg["route"] = buildRoutes(nc.Routes, nc.CustomRouteRules, mergeRouteList(nc.CustomRoutes, kcfg.CustomRoute), users)
+	// Merge panel routes and static config routes.
+	route := buildRoutes(nc.Routes, nc.CustomRouteRules, mergeRouteList(nc.CustomRoutes, kcfg.CustomRoute), users)
+	if ruleSets := buildRuleSets(nc.RuleSets); len(ruleSets) > 0 {
+		route["rule_set"] = ruleSets
+	}
+	cfg["route"] = route
 
 	// Automatically enable rule_set caching (cache_file) when panel routes
 	// reference geoip:/geosite: entries so that the downloaded .srs rule_set
 	// files survive across process restarts.
-	if kernel.NeedsGeoIP(nc.Routes) || kernel.NeedsGeoSite(nc.Routes) || kernel.NeedsGeoIPRules(nc.CustomRouteRules) || kernel.NeedsGeoSiteRules(nc.CustomRouteRules) {
+	if len(nc.RuleSets) > 0 || kernel.NeedsGeoIP(nc.Routes) || kernel.NeedsGeoSite(nc.Routes) || kernel.NeedsGeoIPRules(nc.CustomRouteRules) || kernel.NeedsGeoSiteRules(nc.CustomRouteRules) {
 		cfg["experimental"] = M{
 			"cache_file": M{
 				"enabled": true,
@@ -75,6 +79,37 @@ func buildConfig(kcfg config.KernelConfig, nc *model.NodeSpec, users []model.Use
 
 	mergeCustomSingbox(cfg, kcfg)
 	return cfg
+}
+
+func buildRuleSets(ruleSets []model.RuleSet) []M {
+	result := make([]M, 0, len(ruleSets))
+	for _, ruleSet := range ruleSets {
+		if ruleSet.Singbox == nil {
+			continue
+		}
+		source := ruleSet.Singbox
+		typeName := strings.ToLower(strings.TrimSpace(source.Type))
+		if typeName == "" {
+			typeName = "remote"
+		}
+		entry := M{
+			"tag": ruleSet.Tag, "type": typeName,
+			"format": strings.ToLower(strings.TrimSpace(source.Format)),
+		}
+		if typeName == "local" {
+			entry["path"] = source.Path
+		} else {
+			entry["url"] = source.URL
+			if source.DownloadDetour != "" {
+				entry["download_detour"] = source.DownloadDetour
+			}
+			if source.UpdateInterval != "" {
+				entry["update_interval"] = source.UpdateInterval
+			}
+		}
+		result = append(result, entry)
+	}
+	return result
 }
 
 // outboundConfigToSingbox converts a structured OutboundConfig (from the panel)
@@ -256,12 +291,14 @@ func normalizeLegacyCustomRoute(raw map[string]any) []M {
 	for _, domain := range rawDomains {
 		domain = strings.TrimSpace(domain)
 		switch {
-		case strings.EqualFold(domain, "geosite:google"):
-			suffixes = append(suffixes, googleDomainSuffixes()...)
 		case strings.HasPrefix(domain, "domain:"):
 			suffixes = append(suffixes, strings.TrimPrefix(domain, "domain:"))
 		case strings.HasPrefix(domain, "full:"):
 			exact = append(exact, strings.TrimPrefix(domain, "full:"))
+		case strings.HasPrefix(strings.ToLower(domain), "geosite:"):
+			// Keep an unsupported selector as an impossible exact-domain guard.
+			// Dropping the only matcher would turn this into a catch-all route.
+			exact = append(exact, domain)
 		case !strings.Contains(domain, ":"):
 			exact = append(exact, domain)
 		}
@@ -328,15 +365,6 @@ func uniqueStrings(values []string) []string {
 	return result
 }
 
-func googleDomainSuffixes() []string {
-	return []string{
-		"google.com", "googleapis.com", "gstatic.com", "googleusercontent.com",
-		"googlevideo.com", "ggpht.com", "1e100.net", "gmail.com",
-		"googlemail.com", "youtube.com", "youtu.be", "ytimg.com",
-		"android.com", "doubleclick.net", "googlesyndication.com",
-	}
-}
-
 func compilePanelRouteRule(pr model.RouteRule) []M {
 	if len(pr.Match) == 0 {
 		return nil
@@ -395,6 +423,13 @@ func compileCustomRouteRule(rule model.CustomRouteRule) []M {
 
 	outbound := singboxOutboundForAction(rule.Action)
 	var compiled []M
+
+	if len(rule.Match.RuleSets) > 0 {
+		compiled = append(compiled, M{
+			"rule_set": copyStrings(rule.Match.RuleSets),
+			"outbound": outbound,
+		})
+	}
 
 	if len(rule.Match.Domains) > 0 {
 		compiled = append(compiled, M{

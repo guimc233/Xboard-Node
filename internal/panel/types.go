@@ -112,6 +112,7 @@ type NodeConfig struct {
 	OutboundTemplates []OutboundConfig  `json:"outbound_templates,omitempty"`
 	RouteRulesV2      []CustomRouteRule `json:"route_rules_v2,omitempty"`
 	RouteProfiles     []RouteProfile    `json:"route_profiles,omitempty"`
+	RuleSets          []RuleSet         `json:"rule_sets,omitempty"`
 
 	// Certificate settings (Xboard extension)
 	CertConfig *CertConfig `json:"cert_config,omitempty"`
@@ -239,6 +240,31 @@ type RouteProfile struct {
 	OutboundTag string `json:"outbound_tag"`
 }
 
+// RuleSet is a logical matcher with kernel-native sources. A node selects the
+// source for its active core, allowing the same route template to be attached
+// to sing-box and Xray machines without sharing incompatible file formats.
+type RuleSet struct {
+	Tag     string          `json:"tag"`
+	Singbox *SingboxRuleSet `json:"singbox,omitempty"`
+	Xray    *XrayRuleSet    `json:"xray,omitempty"`
+}
+
+type SingboxRuleSet struct {
+	Type           string `json:"type,omitempty"`
+	Format         string `json:"format,omitempty"`
+	URL            string `json:"url,omitempty"`
+	Path           string `json:"path,omitempty"`
+	DownloadDetour string `json:"download_detour,omitempty"`
+	UpdateInterval string `json:"update_interval,omitempty"`
+}
+
+type XrayRuleSet struct {
+	Type     string `json:"type"`
+	Tag      string `json:"tag"`
+	URL      string `json:"url,omitempty"`
+	FileName string `json:"file_name,omitempty"`
+}
+
 type BaseConfig struct {
 	PushInterval int `json:"push_interval"`
 	PullInterval int `json:"pull_interval"`
@@ -259,6 +285,7 @@ type CustomRouteRule struct {
 }
 
 type RouteMatch struct {
+	RuleSets       []string `json:"rule_sets,omitempty"`
 	Domains        []string `json:"domains,omitempty"`
 	DomainSuffixes []string `json:"domain_suffixes,omitempty"`
 	IPCIDRs        []string `json:"ip_cidrs,omitempty"`

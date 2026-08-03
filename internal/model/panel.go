@@ -117,6 +117,7 @@ func NodeSpecFromPanel(nc *panel.NodeConfig) *NodeSpec {
 			Name:     rule.Name,
 			Disabled: rule.Disabled,
 			Match: RouteMatch{
+				RuleSets:       cloneStringSlice(rule.Match.RuleSets),
 				Domains:        cloneStringSlice(rule.Match.Domains),
 				DomainSuffixes: cloneStringSlice(rule.Match.DomainSuffixes),
 				IPCIDRs:        cloneStringSlice(rule.Match.IPCIDRs),
@@ -132,6 +133,26 @@ func NodeSpecFromPanel(nc *panel.NodeConfig) *NodeSpec {
 		})
 	}
 
+	ruleSets := make([]RuleSet, 0, len(nc.RuleSets))
+	for _, ruleSet := range nc.RuleSets {
+		converted := RuleSet{Tag: ruleSet.Tag}
+		if ruleSet.Singbox != nil {
+			converted.Singbox = &SingboxRuleSet{
+				Type: ruleSet.Singbox.Type, Format: ruleSet.Singbox.Format,
+				URL: ruleSet.Singbox.URL, Path: ruleSet.Singbox.Path,
+				DownloadDetour: ruleSet.Singbox.DownloadDetour,
+				UpdateInterval: ruleSet.Singbox.UpdateInterval,
+			}
+		}
+		if ruleSet.Xray != nil {
+			converted.Xray = &XrayRuleSet{
+				Type: ruleSet.Xray.Type, Tag: ruleSet.Xray.Tag,
+				URL: ruleSet.Xray.URL, FileName: ruleSet.Xray.FileName,
+			}
+		}
+		ruleSets = append(ruleSets, converted)
+	}
+
 	return &NodeSpec{
 		Protocol:            nc.Protocol,
 		ListenIP:            nc.ListenIP,
@@ -144,6 +165,7 @@ func NodeSpecFromPanel(nc *panel.NodeConfig) *NodeSpec {
 		CustomOutbounds:     outbounds,
 		CustomRoutes:        cloneMapSlice(nc.CustomRoutes),
 		CustomRouteRules:    customRouteRules,
+		RuleSets:            ruleSets,
 		ConfigVersion:       nc.ConfigVersion,
 		RouteProfiles:       routeProfiles,
 		CertConfig:          certCfg,
@@ -278,6 +300,7 @@ func (n *NodeSpec) ToPanel() *panel.NodeConfig {
 			Name:     rule.Name,
 			Disabled: rule.Disabled,
 			Match: panel.RouteMatch{
+				RuleSets:       cloneStringSlice(rule.Match.RuleSets),
 				Domains:        cloneStringSlice(rule.Match.Domains),
 				DomainSuffixes: cloneStringSlice(rule.Match.DomainSuffixes),
 				IPCIDRs:        cloneStringSlice(rule.Match.IPCIDRs),
@@ -293,6 +316,26 @@ func (n *NodeSpec) ToPanel() *panel.NodeConfig {
 		})
 	}
 
+	ruleSets := make([]panel.RuleSet, 0, len(n.RuleSets))
+	for _, ruleSet := range n.RuleSets {
+		converted := panel.RuleSet{Tag: ruleSet.Tag}
+		if ruleSet.Singbox != nil {
+			converted.Singbox = &panel.SingboxRuleSet{
+				Type: ruleSet.Singbox.Type, Format: ruleSet.Singbox.Format,
+				URL: ruleSet.Singbox.URL, Path: ruleSet.Singbox.Path,
+				DownloadDetour: ruleSet.Singbox.DownloadDetour,
+				UpdateInterval: ruleSet.Singbox.UpdateInterval,
+			}
+		}
+		if ruleSet.Xray != nil {
+			converted.Xray = &panel.XrayRuleSet{
+				Type: ruleSet.Xray.Type, Tag: ruleSet.Xray.Tag,
+				URL: ruleSet.Xray.URL, FileName: ruleSet.Xray.FileName,
+			}
+		}
+		ruleSets = append(ruleSets, converted)
+	}
+
 	return &panel.NodeConfig{
 		Protocol:            n.Protocol,
 		ListenIP:            n.ListenIP,
@@ -306,6 +349,7 @@ func (n *NodeSpec) ToPanel() *panel.NodeConfig {
 		OutboundTemplates:   outboundTemplates,
 		CustomRoutes:        cloneMapSlice(n.CustomRoutes),
 		CustomRouteRules:    customRouteRules,
+		RuleSets:            ruleSets,
 		ConfigVersion:       n.ConfigVersion,
 		RouteProfiles:       routeProfiles,
 		CertConfig:          certCfg,

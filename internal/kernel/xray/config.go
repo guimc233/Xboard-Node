@@ -77,11 +77,49 @@ func buildConfig(kcfg config.KernelConfig, nc *model.NodeSpec, users []model.Use
 			"supported", "vmess, vless, trojan, shadowsocks, hysteria, socks, http")
 	}
 
-	// Merge panel routes and static config routes
-	cfg["routing"] = buildRouting(nc.Routes, nc.CustomRouteRules, mergeRouteList(nc.CustomRoutes, kcfg.CustomRoute), users)
+	// Xray does not support sing-box .srs rule_set objects. Expand logical
+	// rule-set references to Xray's geosite/geoip/ext selectors instead.
+	xrayRouteRules := expandRuleSets(nc.CustomRouteRules, nc.RuleSets)
+	cfg["routing"] = buildRouting(nc.Routes, xrayRouteRules, mergeRouteList(nc.CustomRoutes, kcfg.CustomRoute), users)
 
 	mergeCustomXray(cfg, kcfg)
 	return cfg
+}
+
+func expandRuleSets(rules []model.CustomRouteRule, ruleSets []model.RuleSet) []model.CustomRouteRule {
+	definitions := make(map[string]*model.XrayRuleSet, len(ruleSets))
+	for index := range ruleSets {
+		if ruleSets[index].Xray != nil {
+			definitions[strings.ToLower(strings.TrimSpace(ruleSets[index].Tag))] = ruleSets[index].Xray
+		}
+	}
+	result := make([]model.CustomRouteRule, 0, len(rules))
+	for _, rule := range rules {
+		for _, logicalTag := range rule.Match.RuleSets {
+			definition := definitions[strings.ToLower(strings.TrimSpace(logicalTag))]
+			if definition == nil {
+				continue
+			}
+			var selector string
+			switch strings.ToLower(strings.TrimSpace(definition.Type)) {
+			case "geosite":
+				selector = "geosite:" + strings.TrimSpace(definition.Tag)
+				rule.Match.Domains = append(rule.Match.Domains, selector)
+			case "geoip":
+				selector = "geoip:" + strings.TrimSpace(definition.Tag)
+				rule.Match.IPCIDRs = append(rule.Match.IPCIDRs, selector)
+			case "ext-domain":
+				selector = "ext:" + strings.TrimSpace(definition.FileName) + ":" + strings.TrimSpace(definition.Tag)
+				rule.Match.Domains = append(rule.Match.Domains, selector)
+			case "ext-ip":
+				selector = "ext:" + strings.TrimSpace(definition.FileName) + ":" + strings.TrimSpace(definition.Tag)
+				rule.Match.IPCIDRs = append(rule.Match.IPCIDRs, selector)
+			}
+		}
+		rule.Match.RuleSets = nil
+		result = append(result, rule)
+	}
+	return result
 }
 
 // outboundConfigToXray converts a structured OutboundConfig (from the panel)

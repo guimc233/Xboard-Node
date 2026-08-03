@@ -33,6 +33,13 @@ func ValidateNodeSpec(n *NodeSpec, kcfg config.KernelConfig) error {
 	if err := ValidateCustomOutboundsForKernel(n.CustomOutbounds, kernelType, additionalTags); err != nil {
 		return fmt.Errorf("validate custom outbounds: %w", err)
 	}
+	availableRuleSets, err := ValidateRuleSets(n.RuleSets, kernelType)
+	if err != nil {
+		return fmt.Errorf("validate rule sets: %w", err)
+	}
+	if err := ValidateRouteRuleSetReferences(n.CustomRouteRules, availableRuleSets); err != nil {
+		return fmt.Errorf("validate route rule sets: %w", err)
+	}
 	if err := ValidateCustomRouteRules(n.CustomRouteRules, kernelType, availableTags); err != nil {
 		return fmt.Errorf("validate custom route rules: %w", err)
 	}

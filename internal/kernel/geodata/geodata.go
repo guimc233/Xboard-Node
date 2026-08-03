@@ -59,6 +59,19 @@ func Ensure(dir string, needGeoIP, needGeoSite bool, kernelType string) error {
 	return firstErr
 }
 
+// EnsureRemoteFile downloads a panel-managed Xray ext rule database into the
+// core asset directory. fileName must be a base name so a panel value cannot
+// escape the configured data directory.
+func EnsureRemoteFile(dir, fileName, sourceURL string) error {
+	if fileName == "" || filepath.Base(fileName) != fileName {
+		return fmt.Errorf("invalid remote rule file name %q", fileName)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create geo_data_dir %q: %w", dir, err)
+	}
+	return ensureFile(dir, fileName, sourceURL)
+}
+
 func ensureFile(dir, name, url string) error {
 	dst := filepath.Join(dir, name)
 	if _, err := os.Stat(dst); err == nil {

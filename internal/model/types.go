@@ -15,6 +15,7 @@ type NodeSpec struct {
 	CustomOutbounds  []OutboundConfig
 	CustomRoutes     []map[string]any
 	CustomRouteRules []CustomRouteRule
+	RuleSets         []RuleSet
 	ConfigVersion    uint64
 	RouteProfiles    []RouteProfile
 	CertConfig       *config.CertConfig
@@ -63,6 +64,28 @@ type RouteProfile struct {
 	ID          string
 	Name        string
 	OutboundTag string
+}
+
+type RuleSet struct {
+	Tag     string
+	Singbox *SingboxRuleSet
+	Xray    *XrayRuleSet
+}
+
+type SingboxRuleSet struct {
+	Type           string
+	Format         string
+	URL            string
+	Path           string
+	DownloadDetour string
+	UpdateInterval string
+}
+
+type XrayRuleSet struct {
+	Type     string
+	Tag      string
+	URL      string
+	FileName string
 }
 
 type RouteRule struct {

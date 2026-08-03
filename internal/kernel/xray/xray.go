@@ -698,12 +698,43 @@ func hexEncode(dst, src []byte) {
 
 // ensureGeoData downloads geo databases when routes reference geoip/geosite.
 func (x *Xray) ensureGeoData(nc *model.NodeSpec) {
-	needIP, needSite := kernel.NeedsGeoIP(nc.Routes), kernel.NeedsGeoSite(nc.Routes)
-	if !needIP && !needSite {
-		return
+	needIP := kernel.NeedsGeoIP(nc.Routes) || kernel.NeedsGeoIPRules(nc.CustomRouteRules)
+	needSite := kernel.NeedsGeoSite(nc.Routes) || kernel.NeedsGeoSiteRules(nc.CustomRouteRules)
+	for _, ruleSet := range nc.RuleSets {
+		if ruleSet.Xray == nil {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(ruleSet.Xray.Type)) {
+		case "geosite":
+			needSite = true
+		case "geoip":
+			needIP = true
+		}
 	}
 	dir := x.cfg.GeoDataDir
-	if err := geodata.Ensure(dir, needIP, needSite, "xray"); err != nil {
+	if dir == "" {
+		dir = x.cfg.ConfigDir
+	}
+	if needIP || needSite {
+		if err := geodata.Ensure(dir, needIP, needSite, "xray"); err != nil {
+			nlog.Core().Warn("geo database unavailable", "error", err)
+		}
+	}
+	for _, ruleSet := range nc.RuleSets {
+		if ruleSet.Xray == nil || strings.TrimSpace(ruleSet.Xray.URL) == "" {
+			continue
+		}
+		if err := geodata.EnsureRemoteFile(dir, ruleSet.Xray.FileName, ruleSet.Xray.URL); err != nil {
+			nlog.Core().Warn("Xray external rule database unavailable", "tag", ruleSet.Tag, "error", err)
+		}
+	}
+	if !needIP && !needSite && len(nc.RuleSets) == 0 {
+		return
+	}
+	if dir == "" {
+		return
+	}
+	if _, err := os.Stat(dir); err != nil {
 		nlog.Core().Warn("geo database unavailable", "error", err)
 	}
 	os.Setenv("XRAY_LOCATION_ASSET", dir)

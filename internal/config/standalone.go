@@ -66,6 +66,7 @@ type StandaloneCustomRouteRule struct {
 }
 
 type StandaloneRouteMatch struct {
+	RuleSets       []string `yaml:"rule_sets,omitempty"`
 	Domains        []string `yaml:"domains,omitempty"`
 	DomainSuffixes []string `yaml:"domain_suffixes,omitempty"`
 	IPCIDRs        []string `yaml:"ip_cidrs,omitempty"`

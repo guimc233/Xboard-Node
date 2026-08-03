@@ -123,6 +123,26 @@ func TestRealityProfileSelectsNormalizedOutbound(t *testing.T) {
 	}
 }
 
+func TestBuildConfig_ExpandsLogicalRuleSetForXray(t *testing.T) {
+	nc := model.NodeSpecFromPanel(&panel.NodeConfig{
+		Protocol: "vless", ServerPort: 443,
+		RuleSets: []panel.RuleSet{{
+			Tag:  "ai-non-cn",
+			Xray: &panel.XrayRuleSet{Type: "geosite", Tag: "category-ai-!cn"},
+		}},
+		RouteRulesV2: []panel.CustomRouteRule{{
+			Match:  panel.RouteMatch{RuleSets: []string{"ai-non-cn"}},
+			Action: panel.RouteAction{Type: "route", Target: "direct"},
+		}},
+	})
+	cfg := buildConfig(testKernelCfg, nc, nil, kernel.TLSCert{})
+	first := cfg["routing"].(M)["rules"].([]M)[0]
+	domains, ok := first["domain"].([]string)
+	if !ok || len(domains) != 1 || domains[0] != "geosite:category-ai-!cn" || first["outboundTag"] != "direct" {
+		t.Fatalf("unexpected Xray rule-set expansion: %#v", first)
+	}
+}
+
 func TestTrojanProfileUsesDerivedPasswordAndUserRoute(t *testing.T) {
 	identity := model.UserIdentity{
 		ProfileID: "profile-trojan", UUID: "11111111-2222-4333-8444-555555555555",
