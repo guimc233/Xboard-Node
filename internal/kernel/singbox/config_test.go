@@ -83,6 +83,35 @@ func TestRealityProfileSelectsNormalizedSocksOutbound(t *testing.T) {
 	}
 }
 
+func TestRealityProfileSelectsNormalizedShadowsocksOutbound(t *testing.T) {
+	identity := model.UserIdentity{
+		ProfileID: "profile-1", UUID: "11111111-2222-4333-8444-555555555555",
+		AuthUser: "xb:u:1:rp:profile-1", OutboundTag: "egress-ss",
+	}
+	nc := model.NodeSpecFromPanel(&panel.NodeConfig{
+		Protocol: "vless", ServerPort: 443, TLS: 2,
+		OutboundTemplates: []panel.OutboundConfig{{
+			Tag: "egress-ss", Protocol: "shadowsocks",
+			Settings: map[string]any{"server": "203.0.113.8", "server_port": 8388, "method": "aes-128-gcm", "password": "secret"},
+		}},
+	})
+	users := []model.UserSpec{{ID: 1, UUID: "aaaaaaaa-1111-2222-3333-444444444444", Identities: []model.UserIdentity{identity}}}
+	cfg := buildConfig(config.KernelConfig{Type: "singbox", LogLevel: "warn"}, nc, users, kernel.TLSCert{})
+
+	var ss M
+	for _, outbound := range cfg["outbounds"].([]M) {
+		if outbound["tag"] == "egress-ss" {
+			ss = outbound
+		}
+	}
+	if ss == nil || ss["type"] != "shadowsocks" || ss["server"] != "203.0.113.8" || ss["server_port"] != 8388 {
+		t.Fatalf("unexpected normalized shadowsocks outbound: %#v", ss)
+	}
+	if ss["method"] != "aes-128-gcm" || ss["password"] != "secret" {
+		t.Fatalf("normalized shadowsocks credentials missing: %#v", ss)
+	}
+}
+
 func TestTrojanProfileUsesDerivedPasswordAndAuthUserRoute(t *testing.T) {
 	identity := model.UserIdentity{
 		ProfileID: "profile-trojan", UUID: "11111111-2222-4333-8444-555555555555",
