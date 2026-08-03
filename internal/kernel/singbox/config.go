@@ -190,6 +190,36 @@ func normalizedOutboundToSingbox(oc model.OutboundConfig) M {
 			m["username"] = username
 			m["password"] = oc.Settings["password"]
 		}
+	case "vless":
+		m["uuid"] = oc.Settings["uuid"]
+		if flow := strings.TrimSpace(fmt.Sprintf("%v", oc.Settings["flow"])); flow != "" && flow != "<nil>" {
+			m["flow"] = flow
+		}
+		if tlsEnabled, _ := oc.Settings["tls"].(bool); tlsEnabled {
+			tls := M{"enabled": true}
+			if serverName := strings.TrimSpace(fmt.Sprintf("%v", oc.Settings["server_name"])); serverName != "" && serverName != "<nil>" {
+				tls["server_name"] = serverName
+			}
+			if insecure, _ := oc.Settings["allow_insecure"].(bool); insecure {
+				tls["insecure"] = true
+			}
+			m["tls"] = tls
+		}
+		network := strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", oc.Settings["network"])))
+		if network != "" && network != "tcp" && network != "<nil>" {
+			transport := M{"type": network}
+			if network == "ws" {
+				if path := strings.TrimSpace(fmt.Sprintf("%v", oc.Settings["path"])); path != "" && path != "<nil>" {
+					transport["path"] = path
+				}
+			}
+			if network == "grpc" {
+				if serviceName := strings.TrimSpace(fmt.Sprintf("%v", oc.Settings["service_name"])); serviceName != "" && serviceName != "<nil>" {
+					transport["service_name"] = serviceName
+				}
+			}
+			m["transport"] = transport
+		}
 	}
 	return m
 }

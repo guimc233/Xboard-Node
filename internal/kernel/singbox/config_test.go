@@ -112,6 +112,32 @@ func TestRealityProfileSelectsNormalizedShadowsocksOutbound(t *testing.T) {
 	}
 }
 
+func TestNormalizedVLESSOutbound(t *testing.T) {
+	nc := model.NodeSpecFromPanel(&panel.NodeConfig{
+		Protocol: "vless", ServerPort: 443,
+		OutboundTemplates: []panel.OutboundConfig{{
+			Tag: "vless-exit", Protocol: "vless",
+			Settings: map[string]any{
+				"server": "203.0.113.10", "server_port": 10086,
+				"uuid": "4f777ed0-b1c8-48c7-953b-10ccc32bc7cf", "network": "tcp", "tls": false,
+			},
+		}},
+	})
+	cfg := buildConfig(config.KernelConfig{Type: "singbox", LogLevel: "warn"}, nc, nil, kernel.TLSCert{})
+	var outbound M
+	for _, item := range cfg["outbounds"].([]M) {
+		if item["tag"] == "vless-exit" {
+			outbound = item
+		}
+	}
+	if outbound == nil || outbound["type"] != "vless" || outbound["server_port"] != 10086 {
+		t.Fatalf("unexpected VLESS outbound: %#v", outbound)
+	}
+	if _, exists := outbound["transport"]; exists {
+		t.Fatalf("TCP VLESS outbound should not add transport: %#v", outbound)
+	}
+}
+
 func TestTrojanProfileUsesDerivedPasswordAndAuthUserRoute(t *testing.T) {
 	identity := model.UserIdentity{
 		ProfileID: "profile-trojan", UUID: "11111111-2222-4333-8444-555555555555",

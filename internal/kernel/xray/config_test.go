@@ -143,6 +143,36 @@ func TestBuildConfig_ExpandsLogicalRuleSetForXray(t *testing.T) {
 	}
 }
 
+func TestNormalizedVLESSOutbound(t *testing.T) {
+	nc := model.NodeSpecFromPanel(&panel.NodeConfig{
+		Protocol: "vless", ServerPort: 443,
+		OutboundTemplates: []panel.OutboundConfig{{
+			Tag: "vless-exit", Protocol: "vless",
+			Settings: map[string]any{
+				"server": "203.0.113.10", "server_port": 10086,
+				"uuid": "4f777ed0-b1c8-48c7-953b-10ccc32bc7cf", "network": "tcp", "tls": false,
+			},
+		}},
+	})
+	cfg := buildConfig(testKernelCfg, nc, nil, kernel.TLSCert{})
+	var outbound M
+	for _, item := range cfg["outbounds"].([]M) {
+		if item["tag"] == "vless-exit" {
+			outbound = item
+		}
+	}
+	if outbound == nil || outbound["protocol"] != "vless" {
+		t.Fatalf("unexpected VLESS outbound: %#v", outbound)
+	}
+	vnext := outbound["settings"].(M)["vnext"].([]M)[0]
+	if vnext["address"] != "203.0.113.10" || vnext["port"] != 10086 {
+		t.Fatalf("unexpected Xray VLESS server: %#v", vnext)
+	}
+	if outbound["streamSettings"].(M)["network"] != "tcp" {
+		t.Fatalf("unexpected Xray VLESS transport: %#v", outbound["streamSettings"])
+	}
+}
+
 func TestTrojanProfileUsesDerivedPasswordAndUserRoute(t *testing.T) {
 	identity := model.UserIdentity{
 		ProfileID: "profile-trojan", UUID: "11111111-2222-4333-8444-555555555555",

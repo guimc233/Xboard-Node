@@ -157,6 +157,37 @@ func normalizedOutboundToXray(oc model.OutboundConfig) M {
 			server["users"] = []M{{"user": username, "pass": fmt.Sprintf("%v", oc.Settings["password"])}}
 		}
 		return M{"protocol": "socks", "tag": oc.Tag, "settings": M{"servers": []M{server}}}
+	case "vless":
+		user := M{"id": oc.Settings["uuid"], "encryption": "none"}
+		if flow := strings.TrimSpace(fmt.Sprintf("%v", oc.Settings["flow"])); flow != "" && flow != "<nil>" {
+			user["flow"] = flow
+		}
+		outbound := M{
+			"protocol": "vless", "tag": oc.Tag,
+			"settings": M{"vnext": []M{{
+				"address": oc.Settings["server"], "port": oc.Settings["server_port"], "users": []M{user},
+			}}},
+		}
+		network := strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", oc.Settings["network"])))
+		if network == "" || network == "<nil>" {
+			network = "tcp"
+		}
+		stream := M{"network": network}
+		if network == "ws" {
+			stream["wsSettings"] = M{"path": oc.Settings["path"]}
+		}
+		if network == "grpc" {
+			stream["grpcSettings"] = M{"serviceName": oc.Settings["service_name"]}
+		}
+		if tlsEnabled, _ := oc.Settings["tls"].(bool); tlsEnabled {
+			stream["security"] = "tls"
+			stream["tlsSettings"] = M{
+				"serverName":    oc.Settings["server_name"],
+				"allowInsecure": oc.Settings["allow_insecure"],
+			}
+		}
+		outbound["streamSettings"] = stream
+		return outbound
 	default:
 		return M{"protocol": oc.Protocol, "tag": oc.Tag, "settings": oc.Settings}
 	}

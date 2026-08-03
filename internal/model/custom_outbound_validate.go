@@ -110,6 +110,14 @@ func validateNormalizedOutboundSettings(index int, protocol string, settings map
 				return fmt.Errorf("custom_outbounds[%d].settings.password is required with username", index)
 			}
 		}
+	case "vless":
+		if strings.TrimSpace(fmt.Sprintf("%v", settings["uuid"])) == "" || settings["uuid"] == nil {
+			return fmt.Errorf("custom_outbounds[%d].settings.uuid is required", index)
+		}
+		network := strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", settings["network"])))
+		if network != "" && network != "<nil>" && network != "tcp" && network != "ws" && network != "grpc" {
+			return fmt.Errorf("custom_outbounds[%d].settings.network %q is unsupported", index, network)
+		}
 	default:
 		return fmt.Errorf("custom_outbounds[%d].protocol %q is not supported by normalized templates", index, protocol)
 	}
