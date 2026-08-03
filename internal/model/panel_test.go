@@ -45,13 +45,32 @@ func TestNodeSpecFromPanelValidated(t *testing.T) {
 		}
 	})
 
-	t.Run("reject profiles outside VLESS Reality", func(t *testing.T) {
+	t.Run("reject VLESS profiles without Reality", func(t *testing.T) {
 		_, err := NodeSpecFromPanelValidated(&panel.NodeConfig{
 			Protocol: "vless", TLS: 1, ServerPort: 443,
 			RouteProfiles: []panel.RouteProfile{{ID: "profile-1", OutboundTag: "direct"}},
 		}, config.KernelConfig{Type: "xray"})
-		if err == nil || !strings.Contains(err.Error(), "require a VLESS Reality inbound") {
+		if err == nil || !strings.Contains(err.Error(), "VLESS route profiles require a Reality inbound") {
 			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("accept Shadowsocks route profiles", func(t *testing.T) {
+		node, err := NodeSpecFromPanelValidated(&panel.NodeConfig{
+			Protocol: "shadowsocks", ServerPort: 8388,
+			OutboundTemplates: []panel.OutboundConfig{{
+				Tag: "hinet", Protocol: "vless", Settings: map[string]any{
+					"server": "hinet.example", "server_port": 10086,
+					"uuid": "11111111-2222-4333-8444-555555555555", "network": "tcp", "tls": false,
+				},
+			}},
+			RouteProfiles: []panel.RouteProfile{{ID: "profile-hinet", Name: "HiNet", OutboundTag: "hinet"}},
+		}, config.KernelConfig{Type: "singbox"})
+		if err != nil {
+			t.Fatalf("NodeSpecFromPanelValidated: %v", err)
+		}
+		if len(node.RouteProfiles) != 1 || node.RouteProfiles[0].OutboundTag != "hinet" {
+			t.Fatalf("unexpected route profiles: %#v", node.RouteProfiles)
 		}
 	})
 

@@ -44,8 +44,17 @@ func ValidateNodeSpec(n *NodeSpec, kcfg config.KernelConfig) error {
 		return fmt.Errorf("validate custom route rules: %w", err)
 	}
 	if len(n.RouteProfiles) > 0 {
-		if !strings.EqualFold(n.Protocol, "vless") || n.TLS != 2 {
-			return fmt.Errorf("route profiles require a VLESS Reality inbound")
+		protocol := strings.ToLower(strings.TrimSpace(n.Protocol))
+		switch protocol {
+		case "vless":
+			if n.TLS != 2 {
+				return fmt.Errorf("VLESS route profiles require a Reality inbound")
+			}
+		case "trojan", "shadowsocks":
+			// Both inbounds support additional per-profile credentials and
+			// auth-user routing in the sing-box and Xray generators.
+		default:
+			return fmt.Errorf("route profiles require a VLESS Reality, Trojan, or Shadowsocks inbound")
 		}
 		for i, profile := range n.RouteProfiles {
 			if strings.TrimSpace(profile.ID) == "" {
