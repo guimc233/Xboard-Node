@@ -233,6 +233,11 @@ func mergeRouteList(a, b []map[string]any) []map[string]any {
 
 func buildRoutes(panelRoutes []model.RouteRule, customRules []model.CustomRouteRule, custom []map[string]any, userSets ...[]model.UserSpec) M {
 	var rules []M
+	if kernel.NeedsDomainSniffing(panelRoutes, customRules, custom) {
+		// Clients can hand the server an already-resolved IP. Sniff TLS SNI,
+		// HTTP Host, and QUIC before evaluating domain/rule-set routes.
+		rules = append(rules, M{"action": "sniff"})
+	}
 
 	// Structured custom routes now take the highest priority for panel-managed overrides.
 	for _, rule := range customRules {

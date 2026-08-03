@@ -92,7 +92,12 @@ func (s *SingBox) Protocols() []string {
 func (s *SingBox) Start(nodeConfig *model.NodeSpec, users []model.UserSpec, tls kernel.TLSCert) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.startLocked(nodeConfig, users, tls)
+}
 
+// startLocked builds and atomically swaps a complete sing-box instance.
+// The caller must hold s.mu.
+func (s *SingBox) startLocked(nodeConfig *model.NodeSpec, users []model.UserSpec, tls kernel.TLSCert) error {
 	cfgMap := buildConfig(s.cfg, nodeConfig, users, tls)
 	data, err := json.Marshal(cfgMap)
 	if err != nil {
@@ -189,15 +194,25 @@ func recycleOldBox(oldBox *box.Box, oldCancel context.CancelFunc, oldCtx context
 	nlog.Core().Debug("sing-box: old instance recycled")
 }
 
-// Reload hot-swaps the inbound users and routing rules without restarting the box.
-// Routes, outbounds, and the connTracker stay alive so in-flight connections
-// continue to be tracked correctly.
+// Reload hot-swaps users when the kernel configuration is unchanged. Any
+// structural change (inbound, TLS, outbound, route, or rule-set) replaces the
+// whole box atomically. sing-box's Router.UpdateRules cannot safely introduce a
+// new rule-set before that rule-set is present in the live router map, and its
+// outbound manager is not updated by that API.
 func (s *SingBox) Reload(nodeConfig *model.NodeSpec, users []model.UserSpec, tls kernel.TLSCert) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if s.box == nil {
 		return fmt.Errorf("not running")
+	}
+
+	tlsChanged := !bytes.Equal(s.tls.CertPEM, tls.CertPEM) || !bytes.Equal(s.tls.KeyPEM, tls.KeyPEM)
+	nodeChanged := s.nodeConfig == nil ||
+		kernel.ComputeHash(nodeConfig, nil) != kernel.ComputeHash(s.nodeConfig, nil)
+	if tlsChanged || nodeChanged {
+		nlog.Core().Info("sing-box: structural configuration changed, performing full restart")
+		return s.startLocked(nodeConfig, users, tls)
 	}
 
 	cfgMap := buildConfig(s.cfg, nodeConfig, users, tls)
@@ -221,72 +236,59 @@ func (s *SingBox) Reload(nodeConfig *model.NodeSpec, users []model.UserSpec, tls
 		return fmt.Errorf("router not available")
 	}
 
-	// Update routing rules
-	if err := router.UpdateRules(opts.Route.Rules, opts.Route.RuleSet); err != nil {
-		nlog.Core().Debug("routing reload failed", "error", err)
-	} else {
-		nlog.Core().Debug("sing-box routing reloaded")
-	}
-
 	nopFactory := singLog.NewNOPFactory()
-
-	// Configuration hash check for inbound reconstruction
-	tlsChanged := !bytes.Equal(s.tls.CertPEM, tls.CertPEM) || !bytes.Equal(s.tls.KeyPEM, tls.KeyPEM)
-	configChanged := tlsChanged || s.nodeConfig == nil || kernel.ComputeHash(nodeConfig, users) != kernel.ComputeHash(s.nodeConfig, s.users)
 
 	for _, inb := range opts.Inbounds {
 		tag := inb.Tag
-		if !configChanged {
-			if existing, ok := im.Get(tag); ok && existing.Type() == inb.Type {
-				var err error
-				switch v := existing.(type) {
-				case adapter.UpdatableInbound[option.VMessUser]:
-					if opts, ok := inb.Options.(*option.VMessInboundOptions); ok {
-						err = v.UpdateUsers(opts.Users)
-					}
-				case adapter.UpdatableInbound[option.VLESSUser]:
-					if opts, ok := inb.Options.(*option.VLESSInboundOptions); ok {
-						err = v.UpdateUsers(opts.Users)
-					}
-				case adapter.UpdatableInbound[option.TrojanUser]:
-					if opts, ok := inb.Options.(*option.TrojanInboundOptions); ok {
-						err = v.UpdateUsers(opts.Users)
-					}
-				case adapter.UpdatableInbound[option.Hysteria2User]:
-					if opts, ok := inb.Options.(*option.Hysteria2InboundOptions); ok {
-						err = v.UpdateUsers(opts.Users)
-					}
-				case adapter.UpdatableShadowsocksInbound:
-					if opts, ok := inb.Options.(*option.ShadowsocksInboundOptions); ok {
-						err = v.UpdateUsersByOptions(opts.Users)
-					}
-				case adapter.UpdatableInbound[option.TUICUser]:
-					if opts, ok := inb.Options.(*option.TUICInboundOptions); ok {
-						err = v.UpdateUsers(opts.Users)
-					}
-				case adapter.UpdatableInbound[option.AnyTLSUser]:
-					if opts, ok := inb.Options.(*option.AnyTLSInboundOptions); ok {
-						err = v.UpdateUsers(opts.Users)
-					}
-				case adapter.UpdatableInbound[option.MieruUser]:
-					if opts, ok := inb.Options.(*option.MieruInboundOptions); ok {
-						err = v.UpdateUsers(opts.Users)
-					}
-				case adapter.UpdatableInbound[auth.User]:
-					switch opts := inb.Options.(type) {
-					case *option.NaiveInboundOptions:
-						err = v.UpdateUsers(opts.Users)
-					case *option.SocksInboundOptions:
-						err = v.UpdateUsers(opts.Users)
-					case *option.HTTPMixedInboundOptions:
-						err = v.UpdateUsers(opts.Users)
-					}
+		if existing, ok := im.Get(tag); ok && existing.Type() == inb.Type {
+			var err error
+			switch v := existing.(type) {
+			case adapter.UpdatableInbound[option.VMessUser]:
+				if opts, ok := inb.Options.(*option.VMessInboundOptions); ok {
+					err = v.UpdateUsers(opts.Users)
 				}
-				if err == nil {
-					continue
+			case adapter.UpdatableInbound[option.VLESSUser]:
+				if opts, ok := inb.Options.(*option.VLESSInboundOptions); ok {
+					err = v.UpdateUsers(opts.Users)
 				}
-				nlog.Core().Warn("incremental update failed, falling back to recreate", "tag", tag, "error", err)
+			case adapter.UpdatableInbound[option.TrojanUser]:
+				if opts, ok := inb.Options.(*option.TrojanInboundOptions); ok {
+					err = v.UpdateUsers(opts.Users)
+				}
+			case adapter.UpdatableInbound[option.Hysteria2User]:
+				if opts, ok := inb.Options.(*option.Hysteria2InboundOptions); ok {
+					err = v.UpdateUsers(opts.Users)
+				}
+			case adapter.UpdatableShadowsocksInbound:
+				if opts, ok := inb.Options.(*option.ShadowsocksInboundOptions); ok {
+					err = v.UpdateUsersByOptions(opts.Users)
+				}
+			case adapter.UpdatableInbound[option.TUICUser]:
+				if opts, ok := inb.Options.(*option.TUICInboundOptions); ok {
+					err = v.UpdateUsers(opts.Users)
+				}
+			case adapter.UpdatableInbound[option.AnyTLSUser]:
+				if opts, ok := inb.Options.(*option.AnyTLSInboundOptions); ok {
+					err = v.UpdateUsers(opts.Users)
+				}
+			case adapter.UpdatableInbound[option.MieruUser]:
+				if opts, ok := inb.Options.(*option.MieruInboundOptions); ok {
+					err = v.UpdateUsers(opts.Users)
+				}
+			case adapter.UpdatableInbound[auth.User]:
+				switch opts := inb.Options.(type) {
+				case *option.NaiveInboundOptions:
+					err = v.UpdateUsers(opts.Users)
+				case *option.SocksInboundOptions:
+					err = v.UpdateUsers(opts.Users)
+				case *option.HTTPMixedInboundOptions:
+					err = v.UpdateUsers(opts.Users)
+				}
 			}
+			if err == nil {
+				continue
+			}
+			nlog.Core().Warn("incremental update failed, falling back to recreate", "tag", tag, "error", err)
 		}
 
 		// Config mismatch or incremental update failure: Reconstruct Inbound.

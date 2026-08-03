@@ -136,6 +136,11 @@ func TestBuildConfig_ExpandsLogicalRuleSetForXray(t *testing.T) {
 		}},
 	})
 	cfg := buildConfig(testKernelCfg, nc, nil, kernel.TLSCert{})
+	inbound := cfg["inbounds"].([]M)[0]
+	sniffing := inbound["sniffing"].(M)
+	if sniffing["enabled"] != true || sniffing["routeOnly"] != true {
+		t.Fatalf("domain rule-set must enable route-only sniffing: %#v", sniffing)
+	}
 	first := cfg["routing"].(M)["rules"].([]M)[0]
 	domains, ok := first["domain"].([]string)
 	if !ok || len(domains) != 1 || domains[0] != "geosite:category-ai-!cn" || first["outboundTag"] != "direct" {

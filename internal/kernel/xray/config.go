@@ -80,7 +80,16 @@ func buildConfig(kcfg config.KernelConfig, nc *model.NodeSpec, users []model.Use
 	// Xray does not support sing-box .srs rule_set objects. Expand logical
 	// rule-set references to Xray's geosite/geoip/ext selectors instead.
 	xrayRouteRules := expandRuleSets(nc.CustomRouteRules, nc.RuleSets)
-	cfg["routing"] = buildRouting(nc.Routes, xrayRouteRules, mergeRouteList(nc.CustomRoutes, kcfg.CustomRoute), users)
+	mergedCustomRoutes := mergeRouteList(nc.CustomRoutes, kcfg.CustomRoute)
+	if inbound != nil && kernel.NeedsDomainSniffing(nc.Routes, xrayRouteRules, mergedCustomRoutes) {
+		// Keep the original destination while exposing HTTP Host, TLS SNI, or
+		// QUIC SNI to the routing engine. This makes domain rules work even
+		// when the client sends an already-resolved IP address.
+		inbound["sniffing"] = M{
+			"enabled": true, "destOverride": []string{"http", "tls", "quic"}, "routeOnly": true,
+		}
+	}
+	cfg["routing"] = buildRouting(nc.Routes, xrayRouteRules, mergedCustomRoutes, users)
 
 	mergeCustomXray(cfg, kcfg)
 	return cfg
