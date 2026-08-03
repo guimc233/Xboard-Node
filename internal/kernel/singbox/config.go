@@ -179,7 +179,7 @@ func buildRoutes(panelRoutes []model.RouteRule, customRules []model.CustomRouteR
 
 	// Raw custom routes remain the escape hatch, but no longer outrank structured rules.
 	for _, cr := range custom {
-		rules = append(rules, M(cr))
+		rules = append(rules, normalizeLegacyCustomRoute(cr)...)
 	}
 
 	// Standard blocks for private IPv4 and IPv6 ranges to prevent SSRF.
@@ -227,6 +227,113 @@ func buildRoutes(panelRoutes []model.RouteRule, customRules []model.CustomRouteR
 	return M{
 		"final": "direct",
 		"rules": rules,
+	}
+}
+
+// normalizeLegacyCustomRoute keeps panel-era Xray rules useful when an
+// installation switches to sing-box. Fields that are already sing-box-native
+// pass through unchanged; well-known Xray aliases are translated.
+func normalizeLegacyCustomRoute(raw map[string]any) []M {
+	rule := M{}
+	for key, value := range raw {
+		rule[key] = value
+	}
+
+	if value, ok := rule["outboundTag"]; ok {
+		if _, exists := rule["outbound"]; !exists {
+			rule["outbound"] = value
+		}
+		delete(rule, "outboundTag")
+	}
+
+	rawDomains, ok := stringSlice(rule["domain"])
+	if !ok || len(rawDomains) == 0 {
+		return []M{rule}
+	}
+
+	exact := make([]string, 0, len(rawDomains))
+	suffixes := make([]string, 0, len(rawDomains))
+	for _, domain := range rawDomains {
+		domain = strings.TrimSpace(domain)
+		switch {
+		case strings.EqualFold(domain, "geosite:google"):
+			suffixes = append(suffixes, googleDomainSuffixes()...)
+		case strings.HasPrefix(domain, "domain:"):
+			suffixes = append(suffixes, strings.TrimPrefix(domain, "domain:"))
+		case strings.HasPrefix(domain, "full:"):
+			exact = append(exact, strings.TrimPrefix(domain, "full:"))
+		case !strings.Contains(domain, ":"):
+			exact = append(exact, domain)
+		}
+	}
+
+	delete(rule, "domain")
+	result := make([]M, 0, 2)
+	if len(exact) > 0 {
+		exactRule := cloneMap(rule)
+		exactRule["domain"] = uniqueStrings(exact)
+		result = append(result, exactRule)
+	}
+	if len(suffixes) > 0 {
+		suffixRule := cloneMap(rule)
+		suffixRule["domain_suffix"] = uniqueStrings(suffixes)
+		result = append(result, suffixRule)
+	}
+	if len(result) == 0 {
+		return []M{rule}
+	}
+	return result
+}
+
+func stringSlice(value any) ([]string, bool) {
+	switch values := value.(type) {
+	case []string:
+		return values, true
+	case []any:
+		result := make([]string, 0, len(values))
+		for _, item := range values {
+			text, ok := item.(string)
+			if ok {
+				result = append(result, text)
+			}
+		}
+		return result, true
+	default:
+		return nil, false
+	}
+}
+
+func cloneMap(source M) M {
+	result := M{}
+	for key, value := range source {
+		result[key] = value
+	}
+	return result
+}
+
+func uniqueStrings(values []string) []string {
+	seen := map[string]struct{}{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
+}
+
+func googleDomainSuffixes() []string {
+	return []string{
+		"google.com", "googleapis.com", "gstatic.com", "googleusercontent.com",
+		"googlevideo.com", "ggpht.com", "1e100.net", "gmail.com",
+		"googlemail.com", "youtube.com", "youtu.be", "ytimg.com",
+		"android.com", "doubleclick.net", "googlesyndication.com",
 	}
 }
 
