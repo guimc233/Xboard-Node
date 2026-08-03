@@ -30,13 +30,20 @@ const (
 	serviceName            = "xboard-node.service"
 	serviceFilePath        = "/etc/systemd/system/xboard-node.service"
 	defaultInstallRoot     = "/etc/xboard-node"
-	downloadBase           = "https://github.com/cedar2025/xboard-node/releases"
+	defaultDownloadBase    = "https://github.com/MiaM1ku/Xboard-Node/releases"
 )
 
 var (
-	version   = "dev"
-	buildTime = "unknown"
+	version      = "dev"
+	buildTime    = "unknown"
+	downloadBase = defaultDownloadBase
 )
+
+func init() {
+	if value := strings.TrimRight(strings.TrimSpace(os.Getenv("XBOARD_NODE_DOWNLOAD_BASE")), "/"); value != "" {
+		downloadBase = value
+	}
+}
 
 type instanceRow struct {
 	ID      string `json:"id"`
@@ -54,7 +61,7 @@ type fileRootConfig struct {
 	WS        *config.WSConfig   `yaml:"ws,omitempty"`
 	Runtime   *fileRuntimeConfig `yaml:"runtime,omitempty"`
 	Cert      *config.CertConfig `yaml:"cert,omitempty"`
-	Instances []fileInstance      `yaml:"instances,omitempty"`
+	Instances []fileInstance     `yaml:"instances,omitempty"`
 }
 
 type fileInstance struct {
@@ -386,7 +393,7 @@ func runUpgrade(args []string) error {
 		return err
 	}
 
-	version := "latest"
+	version := "dev"
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--version" && i+1 < len(args) {
 			version = args[i+1]

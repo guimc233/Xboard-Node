@@ -15,9 +15,9 @@ import (
 	"github.com/xtls/xray-core/common/protocol"
 	"github.com/xtls/xray-core/common/uuid"
 	xrayCore "github.com/xtls/xray-core/core"
+	featurebandwidth "github.com/xtls/xray-core/features/bandwidth"
 	"github.com/xtls/xray-core/features/inbound"
 	"github.com/xtls/xray-core/features/stats"
-	featurebandwidth "github.com/xtls/xray-core/features/bandwidth"
 	"github.com/xtls/xray-core/infra/conf/serial"
 	xrayProxy "github.com/xtls/xray-core/proxy"
 	"github.com/xtls/xray-core/proxy/shadowsocks"
@@ -32,8 +32,8 @@ import (
 	"github.com/cedar2025/xboard-node/internal/config"
 	"github.com/cedar2025/xboard-node/internal/kernel"
 	"github.com/cedar2025/xboard-node/internal/kernel/geodata"
-	"github.com/cedar2025/xboard-node/internal/nlog"
 	"github.com/cedar2025/xboard-node/internal/model"
+	"github.com/cedar2025/xboard-node/internal/nlog"
 )
 
 const (
@@ -308,13 +308,22 @@ func (x *Xray) AddUsers(users []model.UserSpec) (int, error) {
 	for _, u := range userMap {
 		merged = append(merged, u)
 	}
+	_, credentialsToRemove := kernel.UserDiff(x.users, merged)
+	if len(credentialsToRemove) > 0 {
+		nc, t := x.nodeConfig, x.tls
+		x.mu.Unlock()
+		if err := x.Start(nc, merged, t); err != nil {
+			return 0, err
+		}
+		return len(users), nil
+	}
 
 	if len(toAdd) == 0 {
 		// No new kernel users, but properties (limits) may have changed.
 		x.users = merged
 		x.mu.Unlock()
 		x.updateDispatcherLimits(merged)
-	x.updateBandwidthLimits(merged)
+		x.updateBandwidthLimits(merged)
 		return 0, nil
 	}
 
@@ -337,16 +346,21 @@ func (x *Xray) AddUsers(users []model.UserSpec) (int, error) {
 	ctx := context.Background()
 	added := 0
 	for _, u := range toAdd {
-		mu, err := toMemoryUser(proto, nc, u)
+		memoryUsers, err := toMemoryUsers(proto, nc, u)
 		if err != nil {
 			nlog.Core().Warn("xray: skip user, cannot build account", "user", u.ID, "error", err)
 			continue
 		}
-		if err := um.AddUser(ctx, mu); err != nil {
-			nlog.Core().Warn("xray: AddUser failed", "user", u.ID, "error", err)
-			continue
+		userAdded := true
+		for _, mu := range memoryUsers {
+			if err := um.AddUser(ctx, mu); err != nil {
+				nlog.Core().Warn("xray: AddUser failed", "user", u.ID, "email", mu.Email, "error", err)
+				userAdded = false
+			}
 		}
-		added++
+		if userAdded {
+			added++
+		}
 	}
 
 	// Update bookkeeping with full merged list (new users + updated properties).
@@ -407,10 +421,10 @@ func (x *Xray) RemoveUsers(users []model.UserSpec) (int, error) {
 	ctx := context.Background()
 	actualRemoved := 0
 	for _, u := range users {
-		email := userEmail(u.ID)
-		if err := um.RemoveUser(ctx, email); err != nil {
-			nlog.Core().Debug("xray: RemoveUser skipped", "user", u.ID, "error", err)
-			continue
+		for _, email := range userEmails(u) {
+			if err := um.RemoveUser(ctx, email); err != nil {
+				nlog.Core().Debug("xray: RemoveUser skipped", "user", u.ID, "email", email, "error", err)
+			}
 		}
 		actualRemoved++
 	}
@@ -467,19 +481,22 @@ func (x *Xray) UpdateUsers(users []model.UserSpec) (added, removed int, err erro
 
 	// Remove first, then add (order matters for UUID changes on same ID)
 	for _, u := range toRemove {
-		email := userEmail(u.ID)
-		if err := um.RemoveUser(ctx, email); err != nil {
-			nlog.Core().Debug("xray: RemoveUser skipped in UpdateUsers", "user", u.ID, "error", err)
+		for _, email := range userEmails(u) {
+			if err := um.RemoveUser(ctx, email); err != nil {
+				nlog.Core().Debug("xray: RemoveUser skipped in UpdateUsers", "user", u.ID, "email", email, "error", err)
+			}
 		}
 	}
 	for _, u := range toAdd {
-		mu, err := toMemoryUser(proto, nc, u)
+		memoryUsers, err := toMemoryUsers(proto, nc, u)
 		if err != nil {
 			nlog.Core().Warn("xray: skip user in UpdateUsers", "user", u.ID, "error", err)
 			continue
 		}
-		if err := um.AddUser(ctx, mu); err != nil {
-			nlog.Core().Warn("xray: AddUser failed in UpdateUsers", "user", u.ID, "error", err)
+		for _, mu := range memoryUsers {
+			if err := um.AddUser(ctx, mu); err != nil {
+				nlog.Core().Warn("xray: AddUser failed in UpdateUsers", "user", u.ID, "email", mu.Email, "error", err)
+			}
 		}
 	}
 
@@ -588,6 +605,37 @@ func toMemoryUser(proto string, nc *model.NodeSpec, u model.UserSpec) (*protocol
 	}
 
 	return mu, nil
+}
+
+func toMemoryUsers(proto string, nc *model.NodeSpec, u model.UserSpec) ([]*protocol.MemoryUser, error) {
+	base, err := toMemoryUser(proto, nc, u)
+	if err != nil {
+		return nil, err
+	}
+	users := []*protocol.MemoryUser{base}
+	if proto != "vless" {
+		return users, nil
+	}
+	for _, identity := range u.Identities {
+		id, err := uuid.ParseString(identity.UUID)
+		if err != nil {
+			return nil, fmt.Errorf("parse route profile UUID: %w", err)
+		}
+		account := &vless.MemoryAccount{ID: protocol.NewID(id), Encryption: "none"}
+		if nc.Flow != "" {
+			account.Flow = nc.Flow
+		}
+		users = append(users, &protocol.MemoryUser{Email: identity.AuthUser, Level: 0, Account: account})
+	}
+	return users, nil
+}
+
+func userEmails(u model.UserSpec) []string {
+	emails := []string{userEmail(u.ID)}
+	for _, identity := range u.Identities {
+		emails = append(emails, identity.AuthUser)
+	}
+	return emails
 }
 
 // parseCipherType maps a cipher name string to the xray CipherType enum.
@@ -718,14 +766,18 @@ func (x *Xray) aggregateStats() (map[int][2]int64, error) {
 
 	traffic := make(map[int][2]int64)
 	for _, u := range x.users {
-		email := userEmail(u.ID)
-
 		var dUp, dDown int64
-		if c := mgr.GetCounter(fmt.Sprintf("user>>>%s>>>traffic>>>uplink", email)); c != nil {
-			dUp = c.Set(0)
+		emails := []string{userEmail(u.ID)}
+		for _, identity := range u.Identities {
+			emails = append(emails, identity.AuthUser)
 		}
-		if c := mgr.GetCounter(fmt.Sprintf("user>>>%s>>>traffic>>>downlink", email)); c != nil {
-			dDown = c.Set(0)
+		for _, email := range emails {
+			if c := mgr.GetCounter(fmt.Sprintf("user>>>%s>>>traffic>>>uplink", email)); c != nil {
+				dUp += c.Set(0)
+			}
+			if c := mgr.GetCounter(fmt.Sprintf("user>>>%s>>>traffic>>>downlink", email)); c != nil {
+				dDown += c.Set(0)
+			}
 		}
 
 		if dUp > 0 || dDown > 0 {
@@ -766,13 +818,18 @@ func (x *Xray) updateBandwidthLimits(users []model.UserSpec) {
 		users = currentUsers
 	}
 	for _, u := range users {
-		email := userEmail(u.ID)
-		if fn != nil {
-			bm.SetUserLimiter(email, fn(u.UUID))
-			continue
+		emails := []string{userEmail(u.ID)}
+		for _, identity := range u.Identities {
+			emails = append(emails, identity.AuthUser)
 		}
-		bps := int64(u.SpeedLimit) * 1_000_000 / 8
-		bm.SetUserLimit(email, bps)
+		for _, email := range emails {
+			if fn != nil {
+				bm.SetUserLimiter(email, fn(u.UUID))
+				continue
+			}
+			bps := int64(u.SpeedLimit) * 1_000_000 / 8
+			bm.SetUserLimit(email, bps)
+		}
 	}
 }
 
@@ -797,6 +854,14 @@ func (x *Xray) updateDispatcherLimits(users []model.UserSpec) {
 		if u.DeviceLimit > 0 {
 			deviceLimits[email] = u.DeviceLimit
 			deviceLimits[u.UUID] = u.DeviceLimit
+		}
+		for _, identity := range u.Identities {
+			emailToUID[identity.AuthUser] = u.ID
+			emailToUID[identity.UUID] = u.ID
+			if u.DeviceLimit > 0 {
+				deviceLimits[identity.AuthUser] = u.DeviceLimit
+				deviceLimits[identity.UUID] = u.DeviceLimit
+			}
 		}
 	}
 

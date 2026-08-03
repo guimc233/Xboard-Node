@@ -15,6 +15,8 @@ type NodeSpec struct {
 	CustomOutbounds  []OutboundConfig
 	CustomRoutes     []map[string]any
 	CustomRouteRules []CustomRouteRule
+	ConfigVersion    uint64
+	RouteProfiles    []RouteProfile
 	CertConfig       *config.CertConfig
 	AutoTLS          bool
 	Domain           string
@@ -52,6 +54,15 @@ type OutboundConfig struct {
 	Protocol string
 	Settings map[string]any
 	ProxyTag string
+	// Normalized marks panel templates whose common schema must be translated
+	// into the native schema of the selected kernel.
+	Normalized bool
+}
+
+type RouteProfile struct {
+	ID          string
+	Name        string
+	OutboundTag string
 }
 
 type RouteRule struct {
@@ -82,6 +93,15 @@ type UserSpec struct {
 	UUID        string
 	SpeedLimit  int
 	DeviceLimit int
+	Identities  []UserIdentity
+}
+
+type UserIdentity struct {
+	ProfileID   string
+	ProfileName string
+	UUID        string
+	AuthUser    string
+	OutboundTag string
 }
 
 func (n *NodeSpec) GetProxyProtocol() bool {

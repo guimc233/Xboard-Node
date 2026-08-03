@@ -52,6 +52,10 @@ func (l *Limiter) UpdateUsers(users []model.UserSpec) []int {
 	for _, u := range newUsers {
 		if u.DeviceLimit > 0 {
 			idx[u.UUID] = u.DeviceLimit
+			for _, identity := range u.Identities {
+				idx[identity.UUID] = u.DeviceLimit
+				idx[identity.AuthUser] = u.DeviceLimit
+			}
 		}
 	}
 	l.uuidDeviceLimit = idx

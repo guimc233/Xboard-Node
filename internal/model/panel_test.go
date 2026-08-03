@@ -9,6 +9,32 @@ import (
 )
 
 func TestNodeSpecFromPanelValidated(t *testing.T) {
+	t.Run("accept normalized templates and Reality route profiles", func(t *testing.T) {
+		node, err := NodeSpecFromPanelValidated(&panel.NodeConfig{
+			Protocol: "vless", TLS: 2, ServerPort: 443, ConfigVersion: 7,
+			OutboundTemplates: []panel.OutboundConfig{{
+				Tag: "proxy", Protocol: "socks5", Settings: map[string]any{"server": "2.2.2.2", "server_port": 1080},
+			}},
+			RouteProfiles: []panel.RouteProfile{{ID: "profile-1", Name: "Proxy", OutboundTag: "proxy"}},
+		}, config.KernelConfig{Type: "xray"})
+		if err != nil {
+			t.Fatalf("NodeSpecFromPanelValidated: %v", err)
+		}
+		if node.ConfigVersion != 7 || !node.CustomOutbounds[0].Normalized || node.CustomOutbounds[0].Protocol != "socks" {
+			t.Fatalf("unexpected normalized node: %#v", node)
+		}
+	})
+
+	t.Run("reject profiles outside VLESS Reality", func(t *testing.T) {
+		_, err := NodeSpecFromPanelValidated(&panel.NodeConfig{
+			Protocol: "vless", TLS: 1, ServerPort: 443,
+			RouteProfiles: []panel.RouteProfile{{ID: "profile-1", OutboundTag: "direct"}},
+		}, config.KernelConfig{Type: "xray"})
+		if err == nil || !strings.Contains(err.Error(), "require a VLESS Reality inbound") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
 	t.Run("valid custom outbounds and route targets", func(t *testing.T) {
 		node, err := NodeSpecFromPanelValidated(&panel.NodeConfig{
 			Protocol:   "shadowsocks",

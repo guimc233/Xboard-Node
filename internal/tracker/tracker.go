@@ -243,6 +243,23 @@ func (t *Tracker) CurrentOnline() map[int]int {
 	return cp
 }
 
+// CurrentAliveIPs returns a full, immutable device snapshot. Unlike
+// FlushAliveIPs it never suppresses an unchanged snapshot; source-isolated
+// panel reporting relies on full snapshots so an empty map can clear a source.
+func (t *Tracker) CurrentAliveIPs() map[int][]string {
+	s := t.live.Load()
+	result := make(map[int][]string, len(s.aliveIPs))
+	for userID, ips := range s.aliveIPs {
+		values := make([]string, 0, len(ips))
+		for ip := range ips {
+			values = append(values, ip)
+		}
+		sort.Strings(values)
+		result[userID] = values
+	}
+	return result
+}
+
 // RestoreAliveIPs merges alive IPs back in (used when push to panel fails).
 // Note: this operates on the buffer, which will be overwritten next Process().
 func (t *Tracker) RestoreAliveIPs(data map[int][]string) {

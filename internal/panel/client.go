@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cedar2025/xboard-node/internal/buildinfo"
 	"github.com/cedar2025/xboard-node/internal/config"
 	"github.com/cedar2025/xboard-node/internal/nlog"
 	"github.com/go-viper/mapstructure/v2"
@@ -41,6 +42,17 @@ type Client struct {
 
 	apiSuccess atomic.Uint64
 	apiFailure atomic.Uint64
+}
+
+type ReportMetadata struct {
+	ReportID        string
+	Sequence        uint64
+	AgentInstanceID string
+	AgentVersion    string
+	KernelType      string
+	Capabilities    []string
+	ConfigVersion   uint64
+	ConfigError     string
 }
 
 // NewClient creates a new panel API client.
@@ -106,11 +118,22 @@ func (c *Client) Handshake() (*HandshakeResponse, error) {
 // The optional metrics map allows the node to submit richer telemetry
 // (active connections, per-core CPU, GC stats, limiter hits, etc.)
 // without changing the core schema of status.
-func (c *Client) Report(traffic map[int][2]int64, alive map[int][]string, online map[int]int,
+func (c *Client) Report(meta ReportMetadata, traffic map[int][2]int64, alive map[int][]string, online map[int]int,
 	cpu float64, mem, swap, disk [2]uint64,
 	metrics map[string]interface{},
 ) error {
-	payload := make(map[string]interface{})
+	payload := map[string]interface{}{
+		"report_id":         meta.ReportID,
+		"sequence":          meta.Sequence,
+		"agent_instance_id": meta.AgentInstanceID,
+		"agent_version":     meta.AgentVersion,
+		"kernel_type":       meta.KernelType,
+		"capabilities":      meta.Capabilities,
+		"config_version":    meta.ConfigVersion,
+	}
+	if meta.ConfigError != "" {
+		payload["config_error"] = meta.ConfigError
+	}
 
 	if len(traffic) > 0 {
 		t := trafficMapPool.Get().(map[string][2]int64)
@@ -126,7 +149,7 @@ func (c *Client) Report(traffic map[int][2]int64, alive map[int][]string, online
 		}()
 	}
 
-	if len(alive) > 0 {
+	{
 		a := aliveMapPool.Get().(map[string][]string)
 		for uid, ips := range alive {
 			a[strconv.Itoa(uid)] = ips
@@ -140,7 +163,7 @@ func (c *Client) Report(traffic map[int][2]int64, alive map[int][]string, online
 		}()
 	}
 
-	if len(online) > 0 {
+	{
 		o := onlineMapPool.Get().(map[string]int)
 		for uid, count := range online {
 			o[strconv.Itoa(uid)] = count
@@ -343,12 +366,16 @@ func (c *Client) GetMachineNodes() (*MachineNodesResponse, error) {
 
 // ReportMachineStatus sends machine-level load metrics to the panel.
 // netIn/netOut are bytes/sec; negative values mean "unavailable" (first sample).
-func (c *Client) ReportMachineStatus(cpu float64, mem, swap, disk [2]uint64, netIn, netOut float64) error {
+func (c *Client) ReportMachineStatus(kernelType string, cpu float64, mem, swap, disk [2]uint64, netIn, netOut float64) error {
 	payload := map[string]interface{}{
-		"cpu":  cpu,
-		"mem":  map[string]interface{}{"total": mem[0], "used": mem[1]},
-		"swap": map[string]interface{}{"total": swap[0], "used": swap[1]},
-		"disk": map[string]interface{}{"total": disk[0], "used": disk[1]},
+		"cpu":               cpu,
+		"mem":               map[string]interface{}{"total": mem[0], "used": mem[1]},
+		"swap":              map[string]interface{}{"total": swap[0], "used": swap[1]},
+		"disk":              map[string]interface{}{"total": disk[0], "used": disk[1]},
+		"agent_version":     buildinfo.Version,
+		"kernel_type":       kernelType,
+		"capabilities":      buildinfo.Capabilities,
+		"agent_instance_id": buildinfo.InstanceID,
 	}
 	if netIn >= 0 && netOut >= 0 {
 		payload["net"] = map[string]interface{}{"in_speed": netIn, "out_speed": netOut}
@@ -359,6 +386,7 @@ func (c *Client) ReportMachineStatus(cpu float64, mem, swap, disk [2]uint64, net
 // injectAuth writes authentication fields into a payload map.
 func (c *Client) injectAuth(m map[string]interface{}) {
 	m["token"] = c.token
+	m["agent_instance_id"] = buildinfo.InstanceID
 	if c.machineID > 0 {
 		m["machine_id"] = c.machineID
 		if c.nodeID > 0 {

@@ -114,6 +114,9 @@ func ComputeHash(nc *model.NodeSpec, users []model.UserSpec) string {
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].ID < sorted[j].ID })
 	for _, u := range sorted {
 		fmt.Fprintf(h, "%d:%s,", u.ID, u.UUID)
+		for _, identity := range u.Identities {
+			fmt.Fprintf(h, "%s:%s:%s,", identity.ProfileID, identity.UUID, identity.AuthUser)
+		}
 	}
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
@@ -133,14 +136,28 @@ func UserDiff(oldUsers, newUsers []model.UserSpec) (toAdd, toRemove []model.User
 
 	for _, u := range newUsers {
 		old, exists := oldMap[u.ID]
-		if !exists || old.UUID != u.UUID {
+		if !exists || !sameUserCredentials(old, u) {
 			toAdd = append(toAdd, u)
 		}
 	}
 	for _, u := range oldUsers {
-		if _, exists := newMap[u.ID]; !exists {
+		updated, exists := newMap[u.ID]
+		if !exists || !sameUserCredentials(u, updated) {
 			toRemove = append(toRemove, u)
 		}
 	}
 	return
+}
+
+func sameUserCredentials(a, b model.UserSpec) bool {
+	if a.UUID != b.UUID || len(a.Identities) != len(b.Identities) {
+		return false
+	}
+	for i := range a.Identities {
+		ai, bi := a.Identities[i], b.Identities[i]
+		if ai.ProfileID != bi.ProfileID || ai.UUID != bi.UUID || ai.AuthUser != bi.AuthUser || ai.OutboundTag != bi.OutboundTag {
+			return false
+		}
+	}
+	return true
 }

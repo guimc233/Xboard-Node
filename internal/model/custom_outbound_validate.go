@@ -55,6 +55,11 @@ func ValidateCustomOutboundsForKernel(outbounds []OutboundConfig, kernelType str
 		if err := validateOutboundSettings(i, outbound.Settings); err != nil {
 			return err
 		}
+		if outbound.Normalized {
+			if err := validateNormalizedOutboundSettings(i, protocol, outbound.Settings); err != nil {
+				return err
+			}
+		}
 		key := strings.ToLower(tag)
 		if _, exists := seen[key]; exists {
 			return fmt.Errorf("custom_outbounds[%d].tag duplicates %q", i, tag)
@@ -79,6 +84,35 @@ func ValidateCustomOutboundsForKernel(outbounds []OutboundConfig, kernelType str
 		}
 	}
 
+	return nil
+}
+
+func validateNormalizedOutboundSettings(index int, protocol string, settings map[string]any) error {
+	for _, field := range []string{"server", "server_port"} {
+		if _, ok := settings[field]; !ok {
+			return fmt.Errorf("custom_outbounds[%d].settings.%s is required", index, field)
+		}
+	}
+	if _, err := asPort(settings["server_port"]); err != nil {
+		return fmt.Errorf("custom_outbounds[%d].settings.server_port %w", index, err)
+	}
+	switch protocol {
+	case "shadowsocks":
+		for _, field := range []string{"method", "password"} {
+			if strings.TrimSpace(fmt.Sprintf("%v", settings[field])) == "" || settings[field] == nil {
+				return fmt.Errorf("custom_outbounds[%d].settings.%s is required", index, field)
+			}
+		}
+	case "socks":
+		// Anonymous SOCKS5 is valid. If a username is supplied, require its password.
+		if username := strings.TrimSpace(fmt.Sprintf("%v", settings["username"])); username != "" && username != "<nil>" {
+			if strings.TrimSpace(fmt.Sprintf("%v", settings["password"])) == "" || settings["password"] == nil {
+				return fmt.Errorf("custom_outbounds[%d].settings.password is required with username", index)
+			}
+		}
+	default:
+		return fmt.Errorf("custom_outbounds[%d].protocol %q is not supported by normalized templates", index, protocol)
+	}
 	return nil
 }
 

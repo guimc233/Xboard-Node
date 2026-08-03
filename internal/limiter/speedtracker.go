@@ -64,6 +64,10 @@ func (t *SpeedTracker) UpdateBuckets() {
 			if user.UUID != "" {
 				newUUIDMap[user.UUID] = user.ID
 			}
+			for _, identity := range user.Identities {
+				newUUIDMap[identity.UUID] = user.ID
+				newUUIDMap[identity.AuthUser] = user.ID
+			}
 
 			// Update existing limiter if speed changed
 			if lim, ok := t.buckets[user.ID]; ok {

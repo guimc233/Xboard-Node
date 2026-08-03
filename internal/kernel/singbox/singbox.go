@@ -435,21 +435,25 @@ func (s *SingBox) AddUsers(users []model.UserSpec) (int, error) {
 		return 0, fmt.Errorf("not running")
 	}
 
-	existing := make(map[int]struct{}, len(s.users))
+	existing := make(map[int]model.UserSpec, len(s.users))
 	for _, u := range s.users {
-		existing[u.ID] = struct{}{}
+		existing[u.ID] = u
 	}
-	var toAdd []model.UserSpec
 	for _, u := range users {
-		if _, dup := existing[u.ID]; !dup {
-			toAdd = append(toAdd, u)
-		}
+		existing[u.ID] = u
 	}
-	if len(toAdd) == 0 {
+	merged := make([]model.UserSpec, 0, len(existing))
+	for _, u := range existing {
+		merged = append(merged, u)
+	}
+	toAdd, toRemove := kernel.UserDiff(s.users, merged)
+	if len(toAdd) == 0 && len(toRemove) == 0 {
+		s.users = merged
+		if s.connTracker != nil {
+			s.connTracker.SetUserMap(buildUserMap(merged))
+		}
 		return 0, nil
 	}
-
-	merged := append(append([]model.UserSpec{}, s.users...), toAdd...)
 	if err := s.reloadInboundsLocked(merged); err != nil {
 		return 0, err
 	}
@@ -652,6 +656,10 @@ func buildUserMap(users []model.UserSpec) map[string]int {
 	m := make(map[string]int, len(users))
 	for _, u := range users {
 		m[u.UUID] = u.ID
+		for _, identity := range u.Identities {
+			m[identity.AuthUser] = u.ID
+			m[identity.UUID] = u.ID
+		}
 	}
 	return m
 }

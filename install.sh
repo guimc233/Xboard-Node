@@ -24,10 +24,11 @@ DEFAULT_HEALTH_PORT=65530
 DEFAULT_KERNEL="singbox"
 DEFAULT_MODE="node"
 DEFAULT_ACTION="install"
-DEFAULT_RELEASE_VERSION="latest"
+DEFAULT_RELEASE_VERSION="dev"
 DEFAULT_LOG_LEVEL="info"
 DEFAULT_KERNEL_LOG_LEVEL="warn"
-DEFAULT_DOWNLOAD_BASE="https://github.com/cedar2025/xboard-node/releases"
+DEFAULT_REPOSITORY="${XBOARD_NODE_REPOSITORY:-MiaM1ku/Xboard-Node}"
+DEFAULT_DOWNLOAD_BASE="${XBOARD_NODE_DOWNLOAD_BASE:-https://github.com/${DEFAULT_REPOSITORY}/releases}"
 
 ACTION="${DEFAULT_ACTION}"
 MODE=""
@@ -50,6 +51,8 @@ YES=0
 ARCH=""
 OS=""
 DOWNLOAD_URL=""
+REPOSITORY="${DEFAULT_REPOSITORY}"
+DOWNLOAD_BASE="${DEFAULT_DOWNLOAD_BASE}"
 CURRENT_STATE="fresh"
 TMP_DIR=""
 BACKUP_PATH=""
@@ -186,7 +189,9 @@ usage() {
   OPTIONAL:
     --node-type, -T     Explicit node type for node mode
     --kernel, -k        singbox or xray (default: singbox)
-    --version           Release version or latest (default: latest)
+    --version           Release version, dev or latest (default: dev)
+    --repository        GitHub repository used for releases (default: MiaM1ku/Xboard-Node)
+    --download-base     Override the complete release download base URL
     --binary            Use a local xboard-node binary path instead of downloading
     --xbctl-binary      Use a local xbctl binary path instead of downloading
     --health-port       Local health port (default: 65530, use 0 to disable)
@@ -243,6 +248,15 @@ parse_args() {
                 ;;
             --version)
                 RELEASE_VERSION="$2"
+                shift 2
+                ;;
+            --repository)
+                REPOSITORY="$2"
+                DOWNLOAD_BASE="https://github.com/${2}/releases"
+                shift 2
+                ;;
+            --download-base)
+                DOWNLOAD_BASE="${2%/}"
                 shift 2
                 ;;
             --binary)
@@ -417,6 +431,14 @@ validate_install_request() {
         log_error "Token is required"
         exit 1
     fi
+    if ! [[ "$REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+        log_error "repository must use owner/name format, got: ${REPOSITORY}"
+        exit 1
+    fi
+    if ! [[ "$DOWNLOAD_BASE" =~ ^https:// ]]; then
+        log_error "download-base must be an HTTPS URL"
+        exit 1
+    fi
     if ! [[ "$HEALTH_PORT" =~ ^[0-9]+$ ]]; then
         log_error "health-port must be a non-negative integer"
         exit 1
@@ -483,9 +505,9 @@ select_binary_source() {
 resolve_download_url() {
     local artifact="$1"
     if [ "$RELEASE_VERSION" = "latest" ]; then
-        DOWNLOAD_URL="${DEFAULT_DOWNLOAD_BASE}/latest/download/${artifact}"
+        DOWNLOAD_URL="${DOWNLOAD_BASE}/latest/download/${artifact}"
     else
-        DOWNLOAD_URL="${DEFAULT_DOWNLOAD_BASE}/download/${RELEASE_VERSION}/${artifact}"
+        DOWNLOAD_URL="${DOWNLOAD_BASE}/download/${RELEASE_VERSION}/${artifact}"
     fi
 }
 
@@ -592,7 +614,7 @@ render_service() {
     cat >"$TMP_DIR/${SERVICE_NAME}" <<EOF_UNIT
 [Unit]
 Description=Xboard Node Backend
-Documentation=https://github.com/cedar2025/xboard-node
+Documentation=https://github.com/${REPOSITORY}
 After=network-online.target
 Wants=network-online.target
 

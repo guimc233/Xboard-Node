@@ -78,7 +78,7 @@ func buildConfig(kcfg config.KernelConfig, nc *model.NodeSpec, users []model.Use
 	}
 
 	// Merge panel routes and static config routes
-	cfg["routing"] = buildRouting(nc.Routes, nc.CustomRouteRules, mergeRouteList(nc.CustomRoutes, kcfg.CustomRoute))
+	cfg["routing"] = buildRouting(nc.Routes, nc.CustomRouteRules, mergeRouteList(nc.CustomRoutes, kcfg.CustomRoute), users)
 
 	mergeCustomXray(cfg, kcfg)
 	return cfg
@@ -88,6 +88,9 @@ func buildConfig(kcfg config.KernelConfig, nc *model.NodeSpec, users []model.Use
 // into an Xray outbound object. Xray uses a nested layout where protocol-
 // specific fields go inside a "settings" key, and chain proxying uses "proxySettings".
 func outboundConfigToXray(oc model.OutboundConfig) M {
+	if oc.Normalized {
+		return normalizedOutboundToXray(oc)
+	}
 	m := M{
 		"protocol": oc.Protocol,
 		"tag":      oc.Tag,
@@ -99,6 +102,26 @@ func outboundConfigToXray(oc model.OutboundConfig) M {
 		m["proxySettings"] = M{"tag": oc.ProxyTag}
 	}
 	return m
+}
+
+func normalizedOutboundToXray(oc model.OutboundConfig) M {
+	server := M{
+		"address": oc.Settings["server"],
+		"port":    oc.Settings["server_port"],
+	}
+	switch strings.ToLower(oc.Protocol) {
+	case "shadowsocks":
+		server["method"] = oc.Settings["method"]
+		server["password"] = oc.Settings["password"]
+		return M{"protocol": "shadowsocks", "tag": oc.Tag, "settings": M{"servers": []M{server}}}
+	case "socks":
+		if username := strings.TrimSpace(fmt.Sprintf("%v", oc.Settings["username"])); username != "" && username != "<nil>" {
+			server["users"] = []M{{"user": username, "pass": fmt.Sprintf("%v", oc.Settings["password"])}}
+		}
+		return M{"protocol": "socks", "tag": oc.Tag, "settings": M{"servers": []M{server}}}
+	default:
+		return M{"protocol": oc.Protocol, "tag": oc.Tag, "settings": oc.Settings}
+	}
 }
 
 func mergeRouteList(a, b []map[string]any) []map[string]any {
@@ -266,6 +289,13 @@ func buildVLESS(base M, nc *model.NodeSpec, users []model.UserSpec, tc kernel.TL
 			client["flow"] = nc.Flow
 		}
 		clients = append(clients, client)
+		for _, identity := range u.Identities {
+			profileClient := M{"id": identity.UUID, "email": identity.AuthUser}
+			if nc.Flow != "" {
+				profileClient["flow"] = nc.Flow
+			}
+			clients = append(clients, profileClient)
+		}
 	}
 	decryption := "none"
 	if nc.Decryption != "" {
@@ -645,7 +675,7 @@ func buildRealitySettings(nc *model.NodeSpec) M {
 	return reality
 }
 
-func buildRouting(rules []model.RouteRule, customRouteRules []model.CustomRouteRule, customRules []map[string]any) M {
+func buildRouting(rules []model.RouteRule, customRouteRules []model.CustomRouteRule, customRules []map[string]any, userSets ...[]model.UserSpec) M {
 	var xrayRules []M
 
 	// Structured custom routes now take the highest priority for panel-managed overrides.
@@ -681,6 +711,21 @@ func buildRouting(rules []model.RouteRule, customRouteRules []model.CustomRouteR
 
 	for _, rule := range rules {
 		xrayRules = append(xrayRules, compilePanelRouteRule(rule)...)
+	}
+
+	// An alternate Reality credential selects a default outbound without a
+	// second listening port. Explicit domain/IP policies above still win.
+	if len(userSets) > 0 {
+		for _, user := range userSets[0] {
+			for _, identity := range user.Identities {
+				if identity.AuthUser == "" || identity.OutboundTag == "" {
+					continue
+				}
+				xrayRules = append(xrayRules, M{
+					"type": "field", "user": []string{identity.AuthUser}, "outboundTag": identity.OutboundTag,
+				})
+			}
+		}
 	}
 
 	return M{

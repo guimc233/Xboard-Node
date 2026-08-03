@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cedar2025/xboard-node/internal/buildinfo"
 	"github.com/cedar2025/xboard-node/internal/nlog"
 	"github.com/gorilla/websocket"
 )
@@ -203,6 +204,7 @@ func (w *WSClient) connect(ctx context.Context) error {
 	}
 	q := u.Query()
 	q.Set("token", w.token)
+	q.Set("agent_instance_id", buildinfo.InstanceID)
 	if w.cfg.MachineID > 0 {
 		q.Set("machine_id", strconv.Itoa(w.cfg.MachineID))
 	} else {

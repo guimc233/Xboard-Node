@@ -127,6 +127,12 @@ func (p *MachinePanelControlPlane) Discover(
 
 func (p *MachinePanelControlPlane) Report(payload ReportPayload) error {
 	return p.client.Report(
+		panel.ReportMetadata{
+			ReportID: payload.ReportID, Sequence: payload.Sequence,
+			AgentInstanceID: payload.AgentInstanceID, AgentVersion: payload.AgentVersion,
+			KernelType: payload.KernelType, Capabilities: payload.Capabilities,
+			ConfigVersion: payload.ConfigVersion, ConfigError: payload.ConfigError,
+		},
 		payload.Traffic, payload.Alive, payload.Online,
 		payload.CPU, payload.Mem, payload.Swap, payload.Disk,
 		payload.Metrics,
