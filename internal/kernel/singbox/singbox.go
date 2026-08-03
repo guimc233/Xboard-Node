@@ -141,7 +141,7 @@ func (s *SingBox) Start(nodeConfig *model.NodeSpec, users []model.UserSpec, tls 
 
 	// Fresh tracker on full restart.
 	s.connTracker = NewConnTracker(0)
-	s.connTracker.SetUserMap(buildUserMap(users))
+	s.connTracker.SetUserMap(buildUserMap(users), buildProfileMap(users))
 	if s.speedLimitFunc != nil {
 		s.connTracker.SetSpeedLimitFunc(s.speedLimitFunc)
 	}
@@ -304,7 +304,7 @@ func (s *SingBox) Reload(nodeConfig *model.NodeSpec, users []model.UserSpec, tls
 	// Trackers remain registered on the Router (which survives ReloadUsers).
 	// Only update the user map — do NOT re-register or traffic is double-counted.
 	if s.connTracker != nil {
-		s.connTracker.SetUserMap(buildUserMap(users))
+		s.connTracker.SetUserMap(buildUserMap(users), buildProfileMap(users))
 	}
 
 	nlog.Core().Debug("sing-box reloaded", "users", len(users))
@@ -450,7 +450,7 @@ func (s *SingBox) AddUsers(users []model.UserSpec) (int, error) {
 	if len(toAdd) == 0 && len(toRemove) == 0 {
 		s.users = merged
 		if s.connTracker != nil {
-			s.connTracker.SetUserMap(buildUserMap(merged))
+			s.connTracker.SetUserMap(buildUserMap(merged), buildProfileMap(merged))
 		}
 		return 0, nil
 	}
@@ -510,7 +510,7 @@ func (s *SingBox) UpdateUsers(users []model.UserSpec) (added, removed int, err e
 	if added == 0 && removed == 0 {
 		// Only limits may have changed — update tracker map.
 		if s.connTracker != nil {
-			s.connTracker.SetUserMap(buildUserMap(users))
+			s.connTracker.SetUserMap(buildUserMap(users), buildProfileMap(users))
 		}
 		s.users = users
 		return 0, 0, nil
@@ -610,7 +610,7 @@ func (s *SingBox) reloadInboundsLocked(users []model.UserSpec) error {
 	}
 
 	if s.connTracker != nil {
-		s.connTracker.SetUserMap(buildUserMap(users))
+		s.connTracker.SetUserMap(buildUserMap(users), buildProfileMap(users))
 	}
 
 	nlog.Core().Debug("sing-box users hot-swapped", "users", len(users))
@@ -618,13 +618,13 @@ func (s *SingBox) reloadInboundsLocked(users []model.UserSpec) error {
 }
 
 // ─── Observability ──────────────────────────────────────────────────────────
-func (s *SingBox) GetUserTraffic(_ context.Context) (traffic map[int][2]int64, aliveIPs map[int]map[string]bool, connCount int, err error) {
+func (s *SingBox) GetUserTraffic(_ context.Context) (traffic map[int][2]int64, profileTraffic map[string][2]int64, aliveIPs map[int]map[string]bool, connCount int, err error) {
 	ct := s.connTrackerSafe()
 	if ct == nil {
-		return nil, nil, 0, nil
+		return nil, nil, nil, 0, nil
 	}
-	traffic, aliveIPs, connCount = ct.GetUserTraffic()
-	return traffic, aliveIPs, connCount, nil
+	traffic, profileTraffic, aliveIPs, connCount = ct.GetUserTraffic()
+	return traffic, profileTraffic, aliveIPs, connCount, nil
 }
 
 // CloseConnection force-closes a specific connection by its ID.
@@ -659,6 +659,20 @@ func buildUserMap(users []model.UserSpec) map[string]int {
 		for _, identity := range u.Identities {
 			m[identity.AuthUser] = u.ID
 			m[identity.UUID] = u.ID
+		}
+	}
+	return m
+}
+
+func buildProfileMap(users []model.UserSpec) map[string]string {
+	m := make(map[string]string)
+	for _, user := range users {
+		for _, identity := range user.Identities {
+			if identity.AuthUser == "" {
+				continue
+			}
+			m[identity.AuthUser] = identity.AuthUser
+			m[identity.UUID] = identity.AuthUser
 		}
 	}
 	return m

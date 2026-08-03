@@ -111,7 +111,7 @@ func (p *PanelControlPlane) Report(payload ReportPayload) error {
 		AgentInstanceID: payload.AgentInstanceID, AgentVersion: payload.AgentVersion,
 		KernelType: payload.KernelType, Capabilities: payload.Capabilities,
 		ConfigVersion: payload.ConfigVersion, ConfigError: payload.ConfigError,
-	}, payload.Traffic, payload.Alive, payload.Online, payload.CPU, payload.Mem, payload.Swap, payload.Disk, payload.Metrics)
+	}, payload.Traffic, payload.ProfileTraffic, payload.Alive, payload.Online, payload.CPU, payload.Mem, payload.Swap, payload.Disk, payload.Metrics)
 }
 
 func (p *PanelControlPlane) ReportDevices(push PushClient, devices map[int][]string) {

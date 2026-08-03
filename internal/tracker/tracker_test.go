@@ -41,6 +41,21 @@ func TestProcess_DeltaCalculation(t *testing.T) {
 	}
 }
 
+func TestProcessWithProfilesTracksAttributionWithoutChangingUserTraffic(t *testing.T) {
+	tr := New()
+	identity := "xb:u:1:rp:11111111-1111-1111-1111-111111111111"
+	tr.ProcessWithProfiles(
+		map[int][2]int64{1: {100, 200}},
+		map[string][2]int64{identity: {40, 80}}, nil, 1,
+	)
+	if got := tr.FlushTraffic()[1]; got != [2]int64{100, 200} {
+		t.Fatalf("billable user traffic = %v", got)
+	}
+	if got := tr.FlushProfileTraffic()[identity]; got != [2]int64{40, 80} {
+		t.Fatalf("profile attribution = %v", got)
+	}
+}
+
 func TestProcess_CounterReset(t *testing.T) {
 	tr := New()
 

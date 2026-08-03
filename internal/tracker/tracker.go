@@ -39,11 +39,13 @@ type Tracker struct {
 
 	// lastSeen stores the cumulative traffic from the previous Process() call.
 	// Protected by mu — only written by Process.
-	lastSeen map[int][2]int64 // userID → [upload, download] cumulative
+	lastSeen        map[int][2]int64 // userID → [upload, download] cumulative
+	lastProfileSeen map[string][2]int64
 
 	// pending accumulates deltas between flushes.
 	// Protected by mu — written by Process, drained by FlushTraffic.
-	pendingTraffic map[int][2]int64
+	pendingTraffic        map[int][2]int64
+	pendingProfileTraffic map[string][2]int64
 
 	// live holds the current snapshot, swapped atomically.
 	// Readers load this pointer without any lock.
@@ -59,9 +61,11 @@ type Tracker struct {
 
 func New() *Tracker {
 	t := &Tracker{
-		lastSeen:       make(map[int][2]int64),
-		pendingTraffic: make(map[int][2]int64),
-		aliveIPsBuf:    make(map[int][]string),
+		lastSeen:              make(map[int][2]int64),
+		pendingTraffic:        make(map[int][2]int64),
+		lastProfileSeen:       make(map[string][2]int64),
+		pendingProfileTraffic: make(map[string][2]int64),
+		aliveIPsBuf:           make(map[int][]string),
 	}
 	// Publish initial empty snapshot.
 	t.live.Store(&snapshot{
@@ -79,6 +83,16 @@ func New() *Tracker {
 // After computing deltas, it publishes a new snapshot for lock-free reads.
 func (t *Tracker) Process(
 	cumTraffic map[int][2]int64,
+	kernelAliveIPs map[int]map[string]bool,
+	connCount int,
+) {
+	t.ProcessWithProfiles(cumTraffic, nil, kernelAliveIPs, connCount)
+}
+
+// ProcessWithProfiles also computes attribution deltas for route identities.
+func (t *Tracker) ProcessWithProfiles(
+	cumTraffic map[int][2]int64,
+	cumProfileTraffic map[string][2]int64,
 	kernelAliveIPs map[int]map[string]bool,
 	connCount int,
 ) {
@@ -113,6 +127,25 @@ func (t *Tracker) Process(
 		}
 	}
 
+	for identity, cum := range cumProfileTraffic {
+		prev := t.lastProfileSeen[identity]
+		deltaUp := cum[0] - prev[0]
+		deltaDown := cum[1] - prev[1]
+		if deltaUp < 0 {
+			deltaUp = cum[0]
+		}
+		if deltaDown < 0 {
+			deltaDown = cum[1]
+		}
+		t.lastProfileSeen[identity] = cum
+		if deltaUp > 0 || deltaDown > 0 {
+			pending := t.pendingProfileTraffic[identity]
+			pending[0] += deltaUp
+			pending[1] += deltaDown
+			t.pendingProfileTraffic[identity] = pending
+		}
+	}
+
 	// Compute online from alive IPs.
 	online := make(map[int]int, len(kernelAliveIPs))
 	for uid, ips := range kernelAliveIPs {
@@ -128,6 +161,15 @@ func (t *Tracker) Process(
 		inSpeed:   cycleIn,
 		outSpeed:  cycleOut,
 	})
+}
+
+// FlushProfileTraffic drains attribution-only route-profile traffic.
+func (t *Tracker) FlushProfileTraffic() map[string][2]int64 {
+	t.mu.Lock()
+	data := t.pendingProfileTraffic
+	t.pendingProfileTraffic = make(map[string][2]int64, len(data))
+	t.mu.Unlock()
+	return data
 }
 
 // FlushTraffic returns accumulated per-user traffic and resets the pending buffer.

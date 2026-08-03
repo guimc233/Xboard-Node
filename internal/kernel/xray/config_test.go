@@ -123,6 +123,36 @@ func TestRealityProfileSelectsNormalizedOutbound(t *testing.T) {
 	}
 }
 
+func TestTrojanProfileUsesDerivedPasswordAndUserRoute(t *testing.T) {
+	identity := model.UserIdentity{
+		ProfileID: "profile-trojan", UUID: "11111111-2222-4333-8444-555555555555",
+		AuthUser: "xb:u:1:rp:profile-trojan", OutboundTag: "direct",
+	}
+	nc := model.NodeSpecFromPanel(&panel.NodeConfig{
+		Protocol: "trojan", ServerPort: 443, TLS: 1,
+	})
+	users := []model.UserSpec{{
+		ID: 1, UUID: "279d4f89-3a2c-488d-a67c-2d39a72acdde",
+		Identities: []model.UserIdentity{identity},
+	}}
+	cfg := buildConfig(testKernelCfg, nc, users, kernel.TLSCert{})
+
+	inbound := cfg["inbounds"].([]M)[0]
+	clients := inbound["settings"].(M)["clients"].([]M)
+	if len(clients) != 2 {
+		t.Fatalf("trojan clients: got %d, want 2: %#v", len(clients), clients)
+	}
+	if clients[1]["email"] != identity.AuthUser || clients[1]["password"] != identity.UUID {
+		t.Fatalf("trojan profile identity missing from inbound: %#v", clients)
+	}
+
+	rules := cfg["routing"].(M)["rules"].([]M)
+	last := rules[len(rules)-1]
+	if last["outboundTag"] != identity.OutboundTag {
+		t.Fatalf("trojan profile route missing: %#v", last)
+	}
+}
+
 func TestBuildConfig_AllProtocols_ValidJSON(t *testing.T) {
 	protocols := []struct {
 		name string

@@ -73,6 +73,13 @@ type MachineNode struct {
 type MachineNodesResponse struct {
 	Nodes      []MachineNode     `json:"nodes"`
 	BaseConfig MachineBaseConfig `json:"base_config"`
+	Update     *MachineUpdate    `json:"update,omitempty"`
+}
+
+// MachineUpdate is a fixed self-update request. It never carries a command.
+type MachineUpdate struct {
+	RequestID string `json:"request_id"`
+	Version   string `json:"version"`
 }
 
 // MachineBaseConfig holds polling intervals for machine mode.
@@ -224,7 +231,7 @@ type OutboundConfig struct {
 	ProxyTag string         `json:"proxy_tag,omitempty"` // Chain proxy: next outbound tag
 }
 
-// RouteProfile describes a selectable Reality identity and its outbound.
+// RouteProfile describes a selectable authenticated identity and its outbound.
 // The actual per-user UUID is delivered with User.Identities.
 type RouteProfile struct {
 	ID          string `json:"id"`
@@ -275,8 +282,8 @@ type User struct {
 	Identities  []UserIdentity `json:"identities,omitempty"`
 }
 
-// UserIdentity is a deterministic alternate VLESS credential. Its distinct
-// auth_user value lets both kernels route and account it back to the base user.
+// UserIdentity is a deterministic alternate VLESS UUID or Trojan password. Its
+// distinct auth_user lets both kernels route and account it back to the base user.
 type UserIdentity struct {
 	ProfileID   string `json:"profile_id"`
 	ProfileName string `json:"profile_name"`

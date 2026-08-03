@@ -646,7 +646,7 @@ func buildShadowsocks(base M, nc *model.NodeSpec, users []model.UserSpec) M {
 		base["password"] = nc.ServerKey
 	}
 
-	userList := make([]M, len(users))
+	userList := make([]M, 0, len(users))
 	var rawBuf []byte
 	if isSS2022 {
 		rawBuf = make([]byte, ss2022.size)
@@ -660,14 +660,19 @@ func buildShadowsocks(base M, nc *model.NodeSpec, users []model.UserSpec) M {
 		}
 
 		if isSS2022 {
-			// Reuse buffer and clear it to maintain SS2022 key integrity
-			for j := range rawBuf {
-				rawBuf[j] = 0
-			}
-			copy(rawBuf, u.UUID)
-			user["password"] = base64.StdEncoding.EncodeToString(rawBuf)
+			user["password"] = shadowsocks2022UserKey(u.UUID, rawBuf)
 		}
-		userList[i] = user
+		userList = append(userList, user)
+		for _, identity := range u.Identities {
+			profileUser := M{
+				"name":     identity.AuthUser,
+				"password": identity.UUID,
+			}
+			if isSS2022 {
+				profileUser["password"] = shadowsocks2022UserKey(identity.UUID, rawBuf)
+			}
+			userList = append(userList, profileUser)
+		}
 	}
 	base["users"] = userList
 
@@ -676,6 +681,14 @@ func buildShadowsocks(base M, nc *model.NodeSpec, users []model.UserSpec) M {
 	}
 
 	return base
+}
+
+func shadowsocks2022UserKey(credential string, rawBuf []byte) string {
+	for i := range rawBuf {
+		rawBuf[i] = 0
+	}
+	copy(rawBuf, credential)
+	return base64.StdEncoding.EncodeToString(rawBuf)
 }
 
 func buildVMess(base M, nc *model.NodeSpec, users []model.UserSpec, tc kernel.TLSCert) M {
@@ -749,12 +762,18 @@ func buildVLESS(base M, nc *model.NodeSpec, users []model.UserSpec, tc kernel.TL
 func buildTrojan(base M, nc *model.NodeSpec, users []model.UserSpec, tc kernel.TLSCert) M {
 	base["type"] = "trojan"
 
-	userList := make([]M, len(users))
+	userList := make([]M, 0, len(users))
 	for i := range users {
 		u := &users[i]
-		userList[i] = M{
+		userList = append(userList, M{
 			"name":     u.UUID,
 			"password": u.UUID,
+		})
+		for _, identity := range u.Identities {
+			userList = append(userList, M{
+				"name":     identity.AuthUser,
+				"password": identity.UUID,
+			})
 		}
 	}
 	base["users"] = userList

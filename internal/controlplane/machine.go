@@ -133,7 +133,7 @@ func (p *MachinePanelControlPlane) Report(payload ReportPayload) error {
 			KernelType: payload.KernelType, Capabilities: payload.Capabilities,
 			ConfigVersion: payload.ConfigVersion, ConfigError: payload.ConfigError,
 		},
-		payload.Traffic, payload.Alive, payload.Online,
+		payload.Traffic, payload.ProfileTraffic, payload.Alive, payload.Online,
 		payload.CPU, payload.Mem, payload.Swap, payload.Disk,
 		payload.Metrics,
 	)

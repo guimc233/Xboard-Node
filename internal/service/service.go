@@ -946,13 +946,13 @@ func (s *Service) trackAndEnforce(ctx context.Context) {
 		return
 	}
 
-	traffic, aliveIPs, connCount, err := s.kernel.GetUserTraffic(ctx)
+	traffic, profileTraffic, aliveIPs, connCount, err := s.kernel.GetUserTraffic(ctx)
 	if err != nil {
 		nlog.Core().Debug("get user traffic failed", "error", err)
 		return
 	}
 
-	s.tracker.Process(traffic, aliveIPs, connCount)
+	s.tracker.ProcessWithProfiles(traffic, profileTraffic, aliveIPs, connCount)
 
 	// Only log stats if there's actual traffic or connections
 	if connCount > 0 || len(traffic) > 0 {
@@ -1034,6 +1034,7 @@ func (s *Service) pendingOrCreateReport() *controlplane.ReportPayload {
 		Capabilities:    append([]string(nil), buildinfo.Capabilities...),
 		ConfigVersion:   configVersion,
 		Traffic:         s.tracker.FlushTraffic(),
+		ProfileTraffic:  s.tracker.FlushProfileTraffic(),
 		Alive:           s.tracker.CurrentAliveIPs(),
 		Online:          s.tracker.CurrentOnline(),
 		CPU:             status.CPU,

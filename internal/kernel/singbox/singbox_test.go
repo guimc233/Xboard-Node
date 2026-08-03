@@ -36,8 +36,6 @@ func TestSingBoxCapabilities(t *testing.T) {
 	}
 }
 
-
-
 type testConn struct {
 	closed bool
 	reads  [][]byte
@@ -60,11 +58,11 @@ func (c *testConn) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
-func (c *testConn) Close() error { c.closed = true; return nil }
-func (c *testConn) LocalAddr() net.Addr { return &net.TCPAddr{} }
-func (c *testConn) RemoteAddr() net.Addr { return &net.TCPAddr{} }
-func (c *testConn) SetDeadline(time.Time) error { return nil }
-func (c *testConn) SetReadDeadline(time.Time) error { return nil }
+func (c *testConn) Close() error                     { c.closed = true; return nil }
+func (c *testConn) LocalAddr() net.Addr              { return &net.TCPAddr{} }
+func (c *testConn) RemoteAddr() net.Addr             { return &net.TCPAddr{} }
+func (c *testConn) SetDeadline(time.Time) error      { return nil }
+func (c *testConn) SetReadDeadline(time.Time) error  { return nil }
 func (c *testConn) SetWriteDeadline(time.Time) error { return nil }
 
 func testInboundContext(uuid, ip string) adapter.InboundContext {
@@ -93,7 +91,7 @@ func TestConnTrackerRoutedConnectionTracksTrafficAndAliveIPs(t *testing.T) {
 		t.Fatalf("Write() error = %v", err)
 	}
 
-	traffic, aliveIPs, connCount := tracker.GetUserTraffic()
+	traffic, _, aliveIPs, connCount := tracker.GetUserTraffic()
 	if got := traffic[1]; got != [2]int64{5, 3} {
 		t.Fatalf("traffic[1] = %v, want [5 3]", got)
 	}
@@ -107,12 +105,27 @@ func TestConnTrackerRoutedConnectionTracksTrafficAndAliveIPs(t *testing.T) {
 	if err := wrapped.Close(); err != nil {
 		t.Fatalf("Close() error = %v", err)
 	}
-	_, aliveIPs, connCount = tracker.GetUserTraffic()
+	_, _, aliveIPs, connCount = tracker.GetUserTraffic()
 	if aliveIPs[1] != nil {
 		t.Fatalf("aliveIPs after close = %v, want nil", aliveIPs[1])
 	}
 	if connCount != 0 {
 		t.Fatalf("connCount after close = %d, want 0", connCount)
+	}
+}
+
+func TestConnTrackerAttributesProfileTraffic(t *testing.T) {
+	tracker := NewConnTracker(0)
+	identity := "xb:u:1:rp:11111111-1111-1111-1111-111111111111"
+	tracker.SetUserMap(map[string]int{identity: 1}, map[string]string{identity: identity})
+	base := &testConn{reads: [][]byte{[]byte("hello")}}
+	wrapped := tracker.RoutedConnection(context.Background(), base, testInboundContext(identity, "1.1.1.1"), nil, nil)
+	buf := make([]byte, 16)
+	_, _ = wrapped.Read(buf)
+	_, _ = wrapped.Write([]byte("bye"))
+	traffic, profiles, _, _ := tracker.GetUserTraffic()
+	if traffic[1] != [2]int64{5, 3} || profiles[identity] != [2]int64{5, 3} {
+		t.Fatalf("traffic=%v profiles=%v", traffic, profiles)
 	}
 }
 

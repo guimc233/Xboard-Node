@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os/exec"
+	"regexp"
 	"sync"
 	"time"
 
@@ -91,6 +93,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	for _, n := range nodesResp.Nodes {
 		o.startNode(ctx, n)
 	}
+	o.handleUpdate(nodesResp.Update)
 	// Report build metadata and capabilities immediately. Waiting for the first
 	// status tick makes a newly installed machine appear to be a legacy agent.
 	o.reportMachineStatus()
@@ -267,6 +270,36 @@ func (o *Orchestrator) rediscover(ctx context.Context) {
 	for _, n := range nodesResp.Nodes {
 		o.startNode(ctx, n) // no-op if already running
 	}
+	o.handleUpdate(nodesResp.Update)
+}
+
+var safeUpdateVersion = regexp.MustCompile(`^(dev|v?\d+(?:\.\d+){1,3}(?:[-+][A-Za-z0-9.-]+)?)$`)
+
+// handleUpdate launches xbctl in an independent transient systemd unit. The
+// panel supplies only a release version; arbitrary commands are never accepted.
+func (o *Orchestrator) handleUpdate(update *panel.MachineUpdate) {
+	if update == nil || len(update.RequestID) < 8 || !safeUpdateVersion.MatchString(update.Version) {
+		return
+	}
+	accepted, err := o.client.ClaimMachineUpdate(update.RequestID)
+	if err != nil {
+		nlog.Core().Warn("machine update claim failed", "error", err)
+		return
+	}
+	if !accepted {
+		return
+	}
+
+	unit := "xboard-node-upgrade-" + update.RequestID[:8]
+	cmd := exec.Command("systemd-run", "--unit="+unit, "--collect", "--no-block",
+		"/usr/local/bin/xbctl", "upgrade", "--version", update.Version)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		message := fmt.Sprintf("launch updater: %v: %s", err, string(output))
+		nlog.Core().Error("machine update launch failed", "error", message)
+		_ = o.client.FinishMachineUpdate(update.RequestID, "failed", message)
+		return
+	}
+	nlog.Core().Info("machine update accepted", "version", update.Version, "unit", unit)
 }
 
 // ─── Machine status reporting ────────────────────────────────────────────

@@ -311,12 +311,18 @@ func buildVLESS(base M, nc *model.NodeSpec, users []model.UserSpec, tc kernel.TL
 }
 
 func buildTrojan(base M, nc *model.NodeSpec, users []model.UserSpec, tc kernel.TLSCert) M {
-	clients := make([]M, len(users))
+	clients := make([]M, 0, len(users))
 	for i := range users {
 		u := &users[i]
-		clients[i] = M{
+		clients = append(clients, M{
 			"password": u.UUID,
 			"email":    userEmail(u.ID),
+		})
+		for _, identity := range u.Identities {
+			clients = append(clients, M{
+				"password": identity.UUID,
+				"email":    identity.AuthUser,
+			})
 		}
 	}
 	base["settings"] = M{"clients": clients}
@@ -357,14 +363,16 @@ func buildShadowsocks(base M, nc *model.NodeSpec, users []model.UserSpec) M {
 		rawBuf := make([]byte, ss2022.size)
 		for i := range users {
 			u := &users[i]
-			for j := range rawBuf {
-				rawBuf[j] = 0
-			}
-			copy(rawBuf, u.UUID)
 			clients = append(clients, M{
-				"password": base64.StdEncoding.EncodeToString(rawBuf),
+				"password": shadowsocks2022UserKey(u.UUID, rawBuf),
 				"email":    userEmail(u.ID),
 			})
+			for _, identity := range u.Identities {
+				clients = append(clients, M{
+					"password": shadowsocks2022UserKey(identity.UUID, rawBuf),
+					"email":    identity.AuthUser,
+				})
+			}
 		}
 		base["settings"] = M{
 			"method":   nc.Cipher,
@@ -382,6 +390,13 @@ func buildShadowsocks(base M, nc *model.NodeSpec, users []model.UserSpec) M {
 				"password": u.UUID,
 				"email":    userEmail(u.ID),
 			})
+			for _, identity := range u.Identities {
+				clients = append(clients, M{
+					"method":   nc.Cipher,
+					"password": identity.UUID,
+					"email":    identity.AuthUser,
+				})
+			}
 		}
 		base["settings"] = M{
 			"method":  nc.Cipher,
@@ -390,6 +405,14 @@ func buildShadowsocks(base M, nc *model.NodeSpec, users []model.UserSpec) M {
 		}
 	}
 	return base
+}
+
+func shadowsocks2022UserKey(credential string, rawBuf []byte) string {
+	for i := range rawBuf {
+		rawBuf[i] = 0
+	}
+	copy(rawBuf, credential)
+	return base64.StdEncoding.EncodeToString(rawBuf)
 }
 
 func buildSocks(base M, users []model.UserSpec) M {
@@ -713,8 +736,8 @@ func buildRouting(rules []model.RouteRule, customRouteRules []model.CustomRouteR
 		xrayRules = append(xrayRules, compilePanelRouteRule(rule)...)
 	}
 
-	// An alternate Reality credential selects a default outbound without a
-	// second listening port. Explicit domain/IP policies above still win.
+	// An alternate authenticated credential selects a default outbound without
+	// a second listening port. Explicit domain/IP policies above still win.
 	if len(userSets) > 0 {
 		for _, user := range userSets[0] {
 			for _, identity := range user.Identities {

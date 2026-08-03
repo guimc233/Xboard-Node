@@ -58,6 +58,7 @@ type ReportPayload struct {
 	ConfigVersion   uint64
 	ConfigError     string
 	Traffic         map[int][2]int64
+	ProfileTraffic  map[string][2]int64
 	Alive           map[int][]string
 	Online          map[int]int
 	CPU             float64

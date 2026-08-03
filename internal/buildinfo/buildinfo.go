@@ -16,6 +16,8 @@ var Capabilities = []string{
 	"source-isolated-devices",
 	"normalized-outbounds-v2",
 	"route-profiles-v1",
+	"profile-traffic-v1",
+	"remote-self-update-v1",
 }
 
 // InstanceID identifies this process boot. It is intentionally not persisted:

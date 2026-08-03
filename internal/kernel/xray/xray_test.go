@@ -83,7 +83,7 @@ func TestXrayGetUserTrafficUsesBuiltInStatsAndDispatcherState(t *testing.T) {
 	up2.Add(50)
 	down2.Add(80)
 
-	traffic, aliveIPs, connCount, err := x.GetUserTraffic(context.Background())
+	traffic, _, aliveIPs, connCount, err := x.GetUserTraffic(context.Background())
 	if err != nil {
 		t.Fatalf("GetUserTraffic() error = %v", err)
 	}
@@ -105,7 +105,7 @@ func TestXrayGetUserTrafficUsesBuiltInStatsAndDispatcherState(t *testing.T) {
 
 	up1.Add(30)
 	down1.Add(40)
-	traffic, _, _, err = x.GetUserTraffic(context.Background())
+	traffic, _, _, _, err = x.GetUserTraffic(context.Background())
 	if err != nil {
 		t.Fatalf("second GetUserTraffic() error = %v", err)
 	}
@@ -114,6 +114,22 @@ func TestXrayGetUserTrafficUsesBuiltInStatsAndDispatcherState(t *testing.T) {
 	}
 	if got := traffic[2]; got != [2]int64{50, 80} {
 		t.Fatalf("traffic[2] after second poll = %v, want [50 80]", got)
+	}
+}
+
+func TestXrayGetUserTrafficAttributesRouteProfile(t *testing.T) {
+	identity := model.UserIdentity{AuthUser: "xb:u:1:rp:11111111-1111-1111-1111-111111111111"}
+	x, mgr := newStatsBackedXray(t, []model.UserSpec{{ID: 1, UUID: "uuid-1", Identities: []model.UserIdentity{identity}}}, newTestDispatcher())
+	up := mustRegisterCounter(t, mgr, fmt.Sprintf("user>>>%s>>>traffic>>>uplink", identity.AuthUser))
+	down := mustRegisterCounter(t, mgr, fmt.Sprintf("user>>>%s>>>traffic>>>downlink", identity.AuthUser))
+	up.Add(12)
+	down.Add(34)
+	traffic, profiles, _, _, err := x.GetUserTraffic(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if traffic[1] != [2]int64{12, 34} || profiles[identity.AuthUser] != [2]int64{12, 34} {
+		t.Fatalf("traffic=%v profiles=%v", traffic, profiles)
 	}
 }
 
@@ -162,7 +178,6 @@ func TestXraySetSpeedLimitFuncUsesPatchedCorePath(t *testing.T) {
 	}
 }
 
-
 func TestXrayCapabilities(t *testing.T) {
 	x := New(config.KernelConfig{Type: "xray"})
 	caps := x.Capabilities()
@@ -173,7 +188,6 @@ func TestXrayCapabilities(t *testing.T) {
 		t.Fatalf("unexpected force-close xray capabilities: %+v", caps)
 	}
 }
-
 
 func TestXrayUpdateBandwidthLimitsWritesPatchedCoreFeature(t *testing.T) {
 	inst := new(xrayCore.Instance)
@@ -189,7 +203,6 @@ func TestXrayUpdateBandwidthLimitsWritesPatchedCoreFeature(t *testing.T) {
 		t.Fatal("expected patched bandwidth feature to receive user limiter")
 	}
 }
-
 
 func TestXrayUpdateBandwidthLimitsUsesSpeedLimitFunc(t *testing.T) {
 	inst := new(xrayCore.Instance)
@@ -213,7 +226,6 @@ func TestXrayUpdateBandwidthLimitsUsesSpeedLimitFunc(t *testing.T) {
 	}
 }
 
-
 func TestXrayUpdateBandwidthLimitsFallsBackToUserSpeed(t *testing.T) {
 	inst := new(xrayCore.Instance)
 	bm := featurebandwidth.New()
@@ -228,7 +240,6 @@ func TestXrayUpdateBandwidthLimitsFallsBackToUserSpeed(t *testing.T) {
 		t.Fatal("expected fallback limiter derived from user speed")
 	}
 }
-
 
 func TestXrayUpdateUsersLimitOnlyRefreshesDispatcherAndBandwidth(t *testing.T) {
 	x := New(config.KernelConfig{Type: "xray"})

@@ -84,8 +84,10 @@ type Kernel interface {
 	// per-user atomic counters — no per-connection iteration needed.
 	// aliveIPs maps userID → set of source IPs currently connected.
 	// traffic maps userID → [upload, download] cumulative bytes.
+	// profileTraffic maps a route-profile auth identity to cumulative bytes.
+	// It is attribution-only: callers must not charge it a second time.
 	// connCount is the total number of active connections (for metrics).
-	GetUserTraffic(ctx context.Context) (traffic map[int][2]int64, aliveIPs map[int]map[string]bool, connCount int, err error)
+	GetUserTraffic(ctx context.Context) (traffic map[int][2]int64, profileTraffic map[string][2]int64, aliveIPs map[int]map[string]bool, connCount int, err error)
 	// CloseConnection terminates a specific connection by ID.
 	CloseConnection(ctx context.Context, connID string) error
 	// CloseUserConnections terminates all connections for the given user UUID.

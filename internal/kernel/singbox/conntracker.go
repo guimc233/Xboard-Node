@@ -122,10 +122,12 @@ func (u *userStats) aliveIPList() map[string]bool {
 //   - Close callback to decrement IP refcounts
 //   - Per-connection rate limit token accumulation (amortized WaitN)
 type ConnTracker struct {
-	usersMu sync.RWMutex
-	users   map[int]*userStats  // userID → stats
-	uuidMap map[string]int      // UUID → userID (for lookup in RoutedConnection)
-	connMap map[string]net.Conn // connID → conn (only for force-close support)
+	usersMu    sync.RWMutex
+	users      map[int]*userStats    // userID → stats
+	uuidMap    map[string]int        // UUID → userID (for lookup in RoutedConnection)
+	profileMap map[string]string     // inbound credential/name → route profile auth identity
+	profiles   map[string]*userStats // route profile auth identity → attribution counters
+	connMap    map[string]net.Conn   // connID → conn (only for force-close support)
 
 	idCounter atomic.Int64
 
@@ -146,6 +148,8 @@ func NewConnTracker(_ int) *ConnTracker {
 	return &ConnTracker{
 		users:         make(map[int]*userStats),
 		uuidMap:       make(map[string]int),
+		profileMap:    make(map[string]string),
+		profiles:      make(map[string]*userStats),
 		connMap:       make(map[string]net.Conn),
 		globalDevices: make(map[int]map[string]bool),
 	}
@@ -164,12 +168,22 @@ func (t *ConnTracker) SetDeviceLimitFunc(fn func(uuid string) (int, bool)) {
 // SetUserMap replaces the UUID→userID mapping and ensures per-user stats
 // structs exist for all users. Old users that are no longer present keep
 // their stats until their connections drain.
-func (t *ConnTracker) SetUserMap(m map[string]int) {
+func (t *ConnTracker) SetUserMap(m map[string]int, profileMaps ...map[string]string) {
 	t.usersMu.Lock()
 	t.uuidMap = m
+	profiles := map[string]string{}
+	if len(profileMaps) > 0 && profileMaps[0] != nil {
+		profiles = profileMaps[0]
+	}
+	t.profileMap = profiles
 	for _, uid := range m {
 		if _, ok := t.users[uid]; !ok {
 			t.users[uid] = &userStats{ips: make(map[string]int)}
+		}
+	}
+	for _, identity := range profiles {
+		if _, ok := t.profiles[identity]; !ok {
+			t.profiles[identity] = &userStats{ips: make(map[string]int)}
 		}
 	}
 	t.usersMu.Unlock()
@@ -215,6 +229,7 @@ func (t *ConnTracker) RoutedConnection(
 	t.usersMu.RLock()
 	uid := t.uuidMap[uuid]
 	us := t.users[uid]
+	ps := t.profiles[t.profileMap[uuid]]
 	t.usersMu.RUnlock()
 
 	// Device limit gate-keeping
@@ -250,6 +265,7 @@ func (t *ConnTracker) RoutedConnection(
 		Conn:     conn,
 		tracker:  t,
 		us:       us,
+		ps:       ps,
 		userID:   uid,
 		connID:   connID,
 		sourceIP: sourceIP,
@@ -273,6 +289,7 @@ func (t *ConnTracker) RoutedPacketConnection(
 	t.usersMu.RLock()
 	uid := t.uuidMap[uuid]
 	us := t.users[uid]
+	ps := t.profiles[t.profileMap[uuid]]
 	t.usersMu.RUnlock()
 
 	// Device limit gate-keeping
@@ -302,6 +319,7 @@ func (t *ConnTracker) RoutedPacketConnection(
 		PacketConn: conn,
 		tracker:    t,
 		us:         us,
+		ps:         ps,
 		userID:     uid,
 		connID:     connID,
 		sourceIP:   sourceIP,
@@ -416,9 +434,10 @@ func formatInt36(n int64) string {
 
 // GetUserTraffic returns per-user cumulative traffic and alive IPs.
 // This is O(users), not O(connections).
-func (t *ConnTracker) GetUserTraffic() (traffic map[int][2]int64, aliveIPs map[int]map[string]bool, connCount int) {
+func (t *ConnTracker) GetUserTraffic() (traffic map[int][2]int64, profileTraffic map[string][2]int64, aliveIPs map[int]map[string]bool, connCount int) {
 	t.usersMu.RLock()
 	traffic = make(map[int][2]int64, len(t.users))
+	profileTraffic = make(map[string][2]int64, len(t.profiles))
 	aliveIPs = make(map[int]map[string]bool, len(t.users))
 	for uid, us := range t.users {
 		up := us.upload.Load()
@@ -435,6 +454,13 @@ func (t *ConnTracker) GetUserTraffic() (traffic map[int][2]int64, aliveIPs map[i
 		us.mu.Lock()
 		connCount += us.connCount
 		us.mu.Unlock()
+	}
+	for identity, ps := range t.profiles {
+		up := ps.upload.Load()
+		down := ps.download.Load()
+		if up > 0 || down > 0 {
+			profileTraffic[identity] = [2]int64{up, down}
+		}
 	}
 	t.usersMu.RUnlock()
 	return
@@ -561,6 +587,7 @@ type trackedConn struct {
 	net.Conn
 	tracker  *ConnTracker
 	us       *userStats // per-user stats (upload/download atomics + IP tracking)
+	ps       *userStats // optional route-profile attribution counters
 	userID   int        // user ID for device tracking
 	connID   string
 	sourceIP string
@@ -579,6 +606,9 @@ func (c *trackedConn) Read(b []byte) (int, error) {
 	if n > 0 {
 		if c.us != nil {
 			c.us.upload.Add(int64(n)) // 从入站读取 = 用户上传
+		}
+		if c.ps != nil {
+			c.ps.upload.Add(int64(n))
 		}
 		if c.limiter != nil {
 			// Non-blocking rate limiting
@@ -628,6 +658,9 @@ func (c *trackedConn) Write(b []byte) (int, error) {
 	if n > 0 && c.us != nil {
 		c.us.download.Add(int64(n)) // 向入站写入 = 用户下载
 	}
+	if n > 0 && c.ps != nil {
+		c.ps.download.Add(int64(n))
+	}
 	return n, err
 }
 
@@ -643,12 +676,20 @@ func (c *trackedConn) Close() error {
 
 // makeCountFunc builds a CountFunc for zero-copy byte counting via sing's
 // ReadCounter/WriteCounter unwrap interfaces.
-func (c *trackedConn) makeCountFunc(counter *atomic.Int64) N.CountFunc {
+func (c *trackedConn) makeCountFunc(counter *atomic.Int64, profileCounter *atomic.Int64) N.CountFunc {
 	if c.limiter == nil {
-		return func(n int64) { counter.Add(n) }
+		return func(n int64) {
+			counter.Add(n)
+			if profileCounter != nil {
+				profileCounter.Add(n)
+			}
+		}
 	}
 	return func(n int64) {
 		counter.Add(n)
+		if profileCounter != nil {
+			profileCounter.Add(n)
+		}
 		// Non-blocking rate limiting with context cancellation
 		if !c.limiter.AllowN(time.Now(), int(n)) {
 			resv := c.limiter.ReserveN(time.Now(), int(n))
@@ -670,14 +711,22 @@ func (c *trackedConn) UnwrapReader() (io.Reader, []N.CountFunc) {
 	if c.us == nil {
 		return c.Conn, nil
 	}
-	return c.Conn, []N.CountFunc{c.makeCountFunc(&c.us.upload)} // 从入站读取 = 用户上传
+	var profile *atomic.Int64
+	if c.ps != nil {
+		profile = &c.ps.upload
+	}
+	return c.Conn, []N.CountFunc{c.makeCountFunc(&c.us.upload, profile)} // 从入站读取 = 用户上传
 }
 
 func (c *trackedConn) UnwrapWriter() (io.Writer, []N.CountFunc) {
 	if c.us == nil {
 		return c.Conn, nil
 	}
-	return c.Conn, []N.CountFunc{c.makeCountFunc(&c.us.download)} // 向入站写入 = 用户下载
+	var profile *atomic.Int64
+	if c.ps != nil {
+		profile = &c.ps.download
+	}
+	return c.Conn, []N.CountFunc{c.makeCountFunc(&c.us.download, profile)} // 向入站写入 = 用户下载
 }
 
 func (c *trackedConn) Upstream() any           { return c.Conn }
@@ -690,6 +739,7 @@ type trackedPacketConn struct {
 	N.PacketConn
 	tracker  *ConnTracker
 	us       *userStats
+	ps       *userStats
 	userID   int
 	connID   string
 	sourceIP string
@@ -704,6 +754,9 @@ func (c *trackedPacketConn) ReadPacket(buffer *buf.Buffer) (singM.Socksaddr, err
 		n := int64(buffer.Len())
 		if c.us != nil {
 			c.us.upload.Add(n) // 从入站读取 = 用户上传
+		}
+		if c.ps != nil {
+			c.ps.upload.Add(n)
 		}
 		if c.limiter != nil {
 			// Non-blocking rate limiting with context cancellation
@@ -751,6 +804,9 @@ func (c *trackedPacketConn) WritePacket(buffer *buf.Buffer, dest singM.Socksaddr
 	if err == nil && c.us != nil {
 		c.us.download.Add(n) // 向入站写入 = 用户下载
 	}
+	if err == nil && c.ps != nil {
+		c.ps.download.Add(n)
+	}
 	return err
 }
 
@@ -764,12 +820,15 @@ func (c *trackedPacketConn) Close() error {
 	return c.PacketConn.Close()
 }
 
-func (c *trackedPacketConn) makeCountFunc(counter *atomic.Int64) N.CountFunc {
+func (c *trackedPacketConn) makeCountFunc(counter *atomic.Int64, profileCounter *atomic.Int64) N.CountFunc {
 	if c.limiter == nil {
 		return func(n int64) { counter.Add(n) }
 	}
 	return func(n int64) {
 		counter.Add(n)
+		if profileCounter != nil {
+			profileCounter.Add(n)
+		}
 		// Non-blocking rate limiting with context cancellation
 		if !c.limiter.AllowN(time.Now(), int(n)) {
 			resv := c.limiter.ReserveN(time.Now(), int(n))
@@ -791,14 +850,22 @@ func (c *trackedPacketConn) UnwrapPacketReader() (N.PacketReader, []N.CountFunc)
 	if c.us == nil {
 		return c.PacketConn, nil
 	}
-	return c.PacketConn, []N.CountFunc{c.makeCountFunc(&c.us.download)}
+	var profile *atomic.Int64
+	if c.ps != nil {
+		profile = &c.ps.download
+	}
+	return c.PacketConn, []N.CountFunc{c.makeCountFunc(&c.us.download, profile)}
 }
 
 func (c *trackedPacketConn) UnwrapPacketWriter() (N.PacketWriter, []N.CountFunc) {
 	if c.us == nil {
 		return c.PacketConn, nil
 	}
-	return c.PacketConn, []N.CountFunc{c.makeCountFunc(&c.us.upload)}
+	var profile *atomic.Int64
+	if c.ps != nil {
+		profile = &c.ps.upload
+	}
+	return c.PacketConn, []N.CountFunc{c.makeCountFunc(&c.us.upload, profile)}
 }
 
 func (c *trackedPacketConn) Upstream() any           { return c.PacketConn }

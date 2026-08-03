@@ -83,6 +83,35 @@ func TestRealityProfileSelectsNormalizedSocksOutbound(t *testing.T) {
 	}
 }
 
+func TestTrojanProfileUsesDerivedPasswordAndAuthUserRoute(t *testing.T) {
+	identity := model.UserIdentity{
+		ProfileID: "profile-trojan", UUID: "11111111-2222-4333-8444-555555555555",
+		AuthUser: "xb:u:1:rp:profile-trojan", OutboundTag: "direct",
+	}
+	nc := model.NodeSpecFromPanel(&panel.NodeConfig{
+		Protocol: "trojan", ServerPort: 443, TLS: 1,
+	})
+	users := []model.UserSpec{{
+		ID: 1, UUID: "aaaaaaaa-1111-2222-3333-444444444444",
+		Identities: []model.UserIdentity{identity},
+	}}
+	cfg := buildConfig(config.KernelConfig{Type: "singbox", LogLevel: "warn"}, nc, users, kernel.TLSCert{})
+
+	usersConfig := cfg["inbounds"].([]M)[0]["users"].([]M)
+	if len(usersConfig) != 2 {
+		t.Fatalf("trojan users: got %d, want 2: %#v", len(usersConfig), usersConfig)
+	}
+	if usersConfig[1]["name"] != identity.AuthUser || usersConfig[1]["password"] != identity.UUID {
+		t.Fatalf("trojan profile identity missing from inbound: %#v", usersConfig)
+	}
+
+	routeRules := cfg["route"].(M)["rules"].([]M)
+	last := routeRules[len(routeRules)-1]
+	if last["outbound"] != identity.OutboundTag {
+		t.Fatalf("trojan profile route missing: %#v", last)
+	}
+}
+
 func TestBuildInbound_Shadowsocks2022(t *testing.T) {
 	nc := &panel.NodeConfig{
 		Protocol:   "shadowsocks",

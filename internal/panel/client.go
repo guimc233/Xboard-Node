@@ -118,7 +118,7 @@ func (c *Client) Handshake() (*HandshakeResponse, error) {
 // The optional metrics map allows the node to submit richer telemetry
 // (active connections, per-core CPU, GC stats, limiter hits, etc.)
 // without changing the core schema of status.
-func (c *Client) Report(meta ReportMetadata, traffic map[int][2]int64, alive map[int][]string, online map[int]int,
+func (c *Client) Report(meta ReportMetadata, traffic map[int][2]int64, profileTraffic map[string][2]int64, alive map[int][]string, online map[int]int,
 	cpu float64, mem, swap, disk [2]uint64,
 	metrics map[string]interface{},
 ) error {
@@ -147,6 +147,9 @@ func (c *Client) Report(meta ReportMetadata, traffic map[int][2]int64, alive map
 			}
 			trafficMapPool.Put(t)
 		}()
+	}
+	if len(profileTraffic) > 0 {
+		payload["profile_traffic"] = profileTraffic
 	}
 
 	{
@@ -383,6 +386,29 @@ func (c *Client) ReportMachineStatus(kernelType string, cpu float64, mem, swap, 
 	return c.postJSON("/api/v2/server/machine/status", payload)
 }
 
+// ClaimMachineUpdate atomically claims a pending fixed self-update request.
+func (c *Client) ClaimMachineUpdate(requestID string) (bool, error) {
+	var response struct {
+		Accepted bool `json:"accepted"`
+	}
+	if err := c.postJSONDecode("/api/v2/server/machine/update/claim", map[string]interface{}{
+		"request_id": requestID,
+	}, &response); err != nil {
+		return false, err
+	}
+	return response.Accepted, nil
+}
+
+// FinishMachineUpdate records a launch failure (success is detected after the
+// service restarts with a new process instance ID).
+func (c *Client) FinishMachineUpdate(requestID, status, message string) error {
+	return c.postJSON("/api/v2/server/machine/update/finish", map[string]interface{}{
+		"request_id": requestID,
+		"status":     status,
+		"message":    message,
+	})
+}
+
 // injectAuth writes authentication fields into a payload map.
 func (c *Client) injectAuth(m map[string]interface{}) {
 	m["token"] = c.token
@@ -438,6 +464,27 @@ func (c *Client) postJSON(path string, payload map[string]interface{}) error {
 		return fmt.Errorf("status %d: %s", resp.StatusCode, respBody)
 	}
 	c.apiSuccess.Add(1)
+	return nil
+}
+
+func (c *Client) postJSONDecode(path string, payload map[string]interface{}, target interface{}) error {
+	c.injectAuth(payload)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal: %w", err)
+	}
+	resp, err := c.doRequest("POST", path, body, "")
+	if err != nil {
+		return fmt.Errorf("post %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("status %d: %s", resp.StatusCode, respBody)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(target); err != nil {
+		return fmt.Errorf("decode %s: %w", path, err)
+	}
 	return nil
 }
 

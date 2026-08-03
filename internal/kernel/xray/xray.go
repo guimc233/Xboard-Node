@@ -57,17 +57,18 @@ type Xray struct {
 
 	// mu protects instance, limitDispatcher, users, protocol, inboundTag,
 	// lastKernelHash, and cumTraffic. Never held during slow I/O.
-	mu              sync.Mutex
-	instance        *xrayCore.Instance
-	limitDispatcher *LimitDispatcher
-	users           []model.UserSpec
-	nodeConfig      *model.NodeSpec
-	tls             kernel.TLSCert
-	protocol        string
-	inboundTag      string
-	lastKernelHash  string
-	cumTraffic      map[int][2]int64
-	speedLimitFunc  func(string) *rate.Limiter
+	mu                sync.Mutex
+	instance          *xrayCore.Instance
+	limitDispatcher   *LimitDispatcher
+	users             []model.UserSpec
+	nodeConfig        *model.NodeSpec
+	tls               kernel.TLSCert
+	protocol          string
+	inboundTag        string
+	lastKernelHash    string
+	cumTraffic        map[int][2]int64
+	cumProfileTraffic map[string][2]int64
+	speedLimitFunc    func(string) *rate.Limiter
 
 	// running is set after a successful Start and cleared before shutdown.
 	// Atomic so IsRunning / GetConnections never block.
@@ -76,8 +77,9 @@ type Xray struct {
 
 func New(cfg config.KernelConfig) *Xray {
 	return &Xray{
-		cfg:        cfg,
-		cumTraffic: make(map[int][2]int64),
+		cfg:               cfg,
+		cumTraffic:        make(map[int][2]int64),
+		cumProfileTraffic: make(map[string][2]int64),
 	}
 }
 
@@ -155,6 +157,7 @@ func (x *Xray) Start(nodeConfig *model.NodeSpec, users []model.UserSpec, tls ker
 	x.protocol = nodeConfig.Protocol
 	x.inboundTag = nodeConfig.Protocol + "-in"
 	x.cumTraffic = make(map[int][2]int64)
+	x.cumProfileTraffic = make(map[string][2]int64)
 	x.lastKernelHash = kernel.ComputeHash(nodeConfig, users)
 	x.running.Store(true)
 	x.mu.Unlock()
@@ -225,23 +228,23 @@ func tlsEqual(a, b kernel.TLSCert) bool {
 // stats pipeline and connection state from the admission dispatcher when
 // available. The dispatcher intentionally no longer wraps transport links,
 // so traffic accounting must come from xray-core itself.
-func (x *Xray) GetUserTraffic(_ context.Context) (traffic map[int][2]int64, aliveIPs map[int]map[string]bool, connCount int, err error) {
+func (x *Xray) GetUserTraffic(_ context.Context) (traffic map[int][2]int64, profileTraffic map[string][2]int64, aliveIPs map[int]map[string]bool, connCount int, err error) {
 	if !x.running.Load() {
-		return nil, nil, 0, nil
+		return nil, nil, nil, 0, nil
 	}
 
 	x.mu.Lock()
 	ld := x.limitDispatcher
-	traffic, err = x.aggregateStats()
+	traffic, profileTraffic, err = x.aggregateStats()
 	x.mu.Unlock()
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, nil, 0, err
 	}
 
 	if ld != nil {
 		aliveIPs, connCount = ld.GetConnectionState()
 	}
-	return traffic, aliveIPs, connCount, nil
+	return traffic, profileTraffic, aliveIPs, connCount, nil
 }
 
 func (x *Xray) CloseConnection(_ context.Context, _ string) error {
@@ -589,7 +592,8 @@ func toMemoryUser(proto string, nc *model.NodeSpec, u model.UserSpec) (*protocol
 	case "shadowsocks":
 		if strings.HasPrefix(nc.Cipher, "2022-blake3-") {
 			// 2022-blake3 multi-user mode
-			mu.Account = &ss2022.MemoryAccount{Key: u.UUID}
+			cfg := ss2022Methods[nc.Cipher]
+			mu.Account = &ss2022.MemoryAccount{Key: shadowsocks2022UserKey(u.UUID, make([]byte, cfg.size))}
 		} else {
 			// Traditional SS — build via getCipher path
 			ct := parseCipherType(nc.Cipher)
@@ -613,19 +617,36 @@ func toMemoryUsers(proto string, nc *model.NodeSpec, u model.UserSpec) ([]*proto
 		return nil, err
 	}
 	users := []*protocol.MemoryUser{base}
-	if proto != "vless" {
-		return users, nil
-	}
 	for _, identity := range u.Identities {
-		id, err := uuid.ParseString(identity.UUID)
-		if err != nil {
-			return nil, fmt.Errorf("parse route profile UUID: %w", err)
+		profile := &protocol.MemoryUser{Email: identity.AuthUser, Level: 0}
+		switch proto {
+		case "vless":
+			id, err := uuid.ParseString(identity.UUID)
+			if err != nil {
+				return nil, fmt.Errorf("parse route profile UUID: %w", err)
+			}
+			account := &vless.MemoryAccount{ID: protocol.NewID(id), Encryption: "none"}
+			if nc.Flow != "" {
+				account.Flow = nc.Flow
+			}
+			profile.Account = account
+		case "trojan":
+			profile.Account = &trojan.MemoryAccount{Password: identity.UUID, Key: trojanHexSha224(identity.UUID)}
+		case "shadowsocks":
+			if strings.HasPrefix(nc.Cipher, "2022-blake3-") {
+				cfg := ss2022Methods[nc.Cipher]
+				profile.Account = &ss2022.MemoryAccount{Key: shadowsocks2022UserKey(identity.UUID, make([]byte, cfg.size))}
+			} else {
+				account, err := (&shadowsocks.Account{CipherType: parseCipherType(nc.Cipher), Password: identity.UUID}).AsAccount()
+				if err != nil {
+					return nil, fmt.Errorf("build route profile ss account: %w", err)
+				}
+				profile.Account = account
+			}
+		default:
+			continue
 		}
-		account := &vless.MemoryAccount{ID: protocol.NewID(id), Encryption: "none"}
-		if nc.Flow != "" {
-			account.Flow = nc.Flow
-		}
-		users = append(users, &protocol.MemoryUser{Email: identity.AuthUser, Level: 0, Account: account})
+		users = append(users, profile)
 	}
 	return users, nil
 }
@@ -754,29 +775,42 @@ func drainConns(ld *LimitDispatcher, timeout time.Duration) {
 // aggregateStats is a fallback path that reads xray's built-in stats counters
 // when LimitDispatcher is not available. Returns per-user cumulative traffic.
 // Must be called with x.mu held.
-func (x *Xray) aggregateStats() (map[int][2]int64, error) {
+func (x *Xray) aggregateStats() (map[int][2]int64, map[string][2]int64, error) {
 	sm := x.instance.GetFeature(stats.ManagerType())
 	if sm == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	mgr, ok := sm.(stats.Manager)
 	if !ok {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	traffic := make(map[int][2]int64)
 	for _, u := range x.users {
 		var dUp, dDown int64
-		emails := []string{userEmail(u.ID)}
-		for _, identity := range u.Identities {
-			emails = append(emails, identity.AuthUser)
-		}
-		for _, email := range emails {
+		for _, email := range []string{userEmail(u.ID)} {
 			if c := mgr.GetCounter(fmt.Sprintf("user>>>%s>>>traffic>>>uplink", email)); c != nil {
 				dUp += c.Set(0)
 			}
 			if c := mgr.GetCounter(fmt.Sprintf("user>>>%s>>>traffic>>>downlink", email)); c != nil {
 				dDown += c.Set(0)
+			}
+		}
+		for _, identity := range u.Identities {
+			var profileUp, profileDown int64
+			if c := mgr.GetCounter(fmt.Sprintf("user>>>%s>>>traffic>>>uplink", identity.AuthUser)); c != nil {
+				profileUp = c.Set(0)
+			}
+			if c := mgr.GetCounter(fmt.Sprintf("user>>>%s>>>traffic>>>downlink", identity.AuthUser)); c != nil {
+				profileDown = c.Set(0)
+			}
+			dUp += profileUp
+			dDown += profileDown
+			if profileUp > 0 || profileDown > 0 {
+				cum := x.cumProfileTraffic[identity.AuthUser]
+				cum[0] += profileUp
+				cum[1] += profileDown
+				x.cumProfileTraffic[identity.AuthUser] = cum
 			}
 		}
 
@@ -791,7 +825,13 @@ func (x *Xray) aggregateStats() (map[int][2]int64, error) {
 			traffic[u.ID] = cum
 		}
 	}
-	return traffic, nil
+	profileTraffic := make(map[string][2]int64, len(x.cumProfileTraffic))
+	for identity, cumulative := range x.cumProfileTraffic {
+		if cumulative[0] > 0 || cumulative[1] > 0 {
+			profileTraffic[identity] = cumulative
+		}
+	}
+	return traffic, profileTraffic, nil
 }
 
 // updateBandwidthLimits configures the patched xray-core bandwidth feature
