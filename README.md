@@ -31,7 +31,7 @@ vim config/config.yml   # set panel.url / token / node_id
 docker compose up -d
 ```
 
-### Installer (Linux systemd)
+### Installer (Linux systemd / OpenRC)
 
 ```bash
 # Node mode
@@ -41,10 +41,16 @@ curl -fsSL https://raw.githubusercontent.com/MiaM1ku/Xboard-Node/dev/install.sh 
 # Machine mode
 curl -fsSL https://raw.githubusercontent.com/MiaM1ku/Xboard-Node/dev/install.sh | \
   sudo bash -s -- --mode machine --panel https://panel.example.com --token TOKEN --machine-id 1
+
+# Alpine root shell (sudo is normally not installed)
+curl -fsSL https://raw.githubusercontent.com/MiaM1ku/Xboard-Node/dev/install.sh | \
+  bash -s -- --mode machine --panel https://panel.example.com --token TOKEN --machine-id 1
 ```
 
-The installer downloads the fork's `dev` Release by default, writes a systemd unit,
-waits for `/healthz`, and rolls back binaries and configuration when health checks fail.
+The installer downloads the fork's `dev` Release by default, writes a systemd unit
+or OpenRC init script, enables it at boot, waits for `/healthz`, and rolls back binaries
+and configuration when health checks fail. OpenRC logs are written to
+`/var/log/xboard-node.log`.
 Use `--repository owner/name` or `XBOARD_NODE_DOWNLOAD_BASE` to target another release source.
 
 ## xbctl

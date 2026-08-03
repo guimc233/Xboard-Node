@@ -6,9 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/cedar2025/xboard-node/internal/config"
@@ -275,8 +277,9 @@ func (o *Orchestrator) rediscover(ctx context.Context) {
 
 var safeUpdateVersion = regexp.MustCompile(`^(dev|v?\d+(?:\.\d+){1,3}(?:[-+][A-Za-z0-9.-]+)?)$`)
 
-// handleUpdate launches xbctl in an independent transient systemd unit. The
-// panel supplies only a release version; arbitrary commands are never accepted.
+// handleUpdate launches xbctl outside the service's process group so the
+// updater survives restarting xboard-node. The panel supplies only a release
+// version; arbitrary commands are never accepted.
 func (o *Orchestrator) handleUpdate(update *panel.MachineUpdate) {
 	if update == nil || len(update.RequestID) < 8 || !safeUpdateVersion.MatchString(update.Version) {
 		return
@@ -290,16 +293,58 @@ func (o *Orchestrator) handleUpdate(update *panel.MachineUpdate) {
 		return
 	}
 
-	unit := "xboard-node-upgrade-" + update.RequestID[:8]
-	cmd := exec.Command("systemd-run", "--unit="+unit, "--collect", "--no-block",
-		"/usr/local/bin/xbctl", "upgrade", "--version", update.Version)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		message := fmt.Sprintf("launch updater: %v: %s", err, string(output))
+	launcher, err := launchUpdater(update.RequestID[:8], update.Version)
+	if err != nil {
+		message := fmt.Sprintf("launch updater: %v", err)
 		nlog.Core().Error("machine update launch failed", "error", message)
 		_ = o.client.FinishMachineUpdate(update.RequestID, "failed", message)
 		return
 	}
-	nlog.Core().Info("machine update accepted", "version", update.Version, "unit", unit)
+	nlog.Core().Info("machine update accepted", "version", update.Version, "launcher", launcher)
+}
+
+func launchUpdater(requestPrefix, version string) (string, error) {
+	if _, err := os.Stat("/run/systemd/system"); err == nil {
+		if systemdRun, err := exec.LookPath("systemd-run"); err == nil {
+			unit := "xboard-node-upgrade-" + requestPrefix
+			cmd := exec.Command(systemdRun, "--unit="+unit, "--collect", "--no-block",
+				"/usr/local/bin/xbctl", "upgrade", "--version", version)
+			if output, err := cmd.CombinedOutput(); err != nil {
+				return "", fmt.Errorf("systemd-run: %w: %s", err, string(output))
+			}
+			return unit, nil
+		}
+	}
+
+	if _, err := os.Stat("/sbin/openrc-run"); err != nil {
+		return "", fmt.Errorf("neither systemd nor OpenRC is available")
+	}
+	if _, err := exec.LookPath("rc-service"); err != nil {
+		return "", fmt.Errorf("OpenRC service tools are unavailable: %w", err)
+	}
+
+	logFile, err := os.OpenFile("/var/log/xboard-node-upgrade.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return "", fmt.Errorf("open updater log: %w", err)
+	}
+	cmd := exec.Command("/usr/local/bin/xbctl", "upgrade", "--version", version)
+	cmd.Stdin = nil
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		logFile.Close()
+		return "", fmt.Errorf("start detached updater: %w", err)
+	}
+	pid := cmd.Process.Pid
+	if err := cmd.Process.Release(); err != nil {
+		logFile.Close()
+		return "", fmt.Errorf("release detached updater: %w", err)
+	}
+	if err := logFile.Close(); err != nil {
+		return "", fmt.Errorf("close updater log: %w", err)
+	}
+	return fmt.Sprintf("openrc-pid-%d", pid), nil
 }
 
 // ─── Machine status reporting ────────────────────────────────────────────
