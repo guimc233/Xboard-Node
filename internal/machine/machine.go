@@ -91,6 +91,9 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	for _, n := range nodesResp.Nodes {
 		o.startNode(ctx, n)
 	}
+	// Report build metadata and capabilities immediately. Waiting for the first
+	// status tick makes a newly installed machine appear to be a legacy agent.
+	o.reportMachineStatus()
 
 	discoveryTicker := time.NewTicker(o.pullInterval)
 	statusTicker := time.NewTicker(o.pushInterval)
@@ -124,7 +127,8 @@ func (o *Orchestrator) startNode(ctx context.Context, mn panel.MachineNode) {
 	nodeCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	mb := controlplane.NewNodeMailbox()
-	o.nodes[mn.ID] = &nodeHandle{cancel: cancel, done: done, mailbox: mb}
+	handle := &nodeHandle{cancel: cancel, done: done, mailbox: mb}
+	o.nodes[mn.ID] = handle
 	o.mu.Unlock()
 
 	o.eventsMu.Lock()
@@ -173,11 +177,24 @@ func (o *Orchestrator) startNode(ctx context.Context, mn panel.MachineNode) {
 	go func() {
 		defer close(done)
 		defer o.unregisterNode(mn.ID)
+		defer o.removeExitedNode(mn.ID, handle)
 		if err := svc.Run(nodeCtx); err != nil {
 			nlog.Core().Error("machine node exited with error",
 				"node_id", mn.ID, "error", err)
 		}
 	}()
+}
+
+// removeExitedNode forgets a node service that stopped by itself. Without
+// this cleanup, rediscovery sees the stale handle forever and never retries a
+// transient startup failure such as a port temporarily held by a legacy
+// supervisor process.
+func (o *Orchestrator) removeExitedNode(nodeID int, exited *nodeHandle) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if current, ok := o.nodes[nodeID]; ok && current == exited {
+		delete(o.nodes, nodeID)
+	}
 }
 
 func (o *Orchestrator) stopNode(nodeID int) {
