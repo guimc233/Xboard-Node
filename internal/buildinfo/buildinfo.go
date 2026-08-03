@@ -17,6 +17,7 @@ var Capabilities = []string{
 	"normalized-outbounds-v2",
 	"route-profiles-v1",
 	"profile-traffic-v1",
+	"rule-sets-v1",
 	"remote-self-update-v1",
 }
 
