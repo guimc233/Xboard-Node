@@ -71,8 +71,8 @@ type MachineNode struct {
 
 // MachineNodesResponse is the response from GET /api/v2/server/machine/nodes.
 type MachineNodesResponse struct {
-	Nodes      []MachineNode      `json:"nodes"`
-	BaseConfig MachineBaseConfig  `json:"base_config"`
+	Nodes      []MachineNode     `json:"nodes"`
+	BaseConfig MachineBaseConfig `json:"base_config"`
 }
 
 // MachineBaseConfig holds polling intervals for machine mode.
@@ -99,6 +99,12 @@ type NodeConfig struct {
 	CustomOutbounds  []OutboundConfig  `json:"custom_outbounds,omitempty"`
 	CustomRoutes     []map[string]any  `json:"custom_routes,omitempty"`
 	CustomRouteRules []CustomRouteRule `json:"custom_route_rules,omitempty"`
+	// Normalized panel-managed routing objects. These coexist with the raw
+	// escape hatches above so older installations remain compatible.
+	ConfigVersion     uint64            `json:"config_version,omitempty"`
+	OutboundTemplates []OutboundConfig  `json:"outbound_templates,omitempty"`
+	RouteRulesV2      []CustomRouteRule `json:"route_rules_v2,omitempty"`
+	RouteProfiles     []RouteProfile    `json:"route_profiles,omitempty"`
 
 	// Certificate settings (Xboard extension)
 	CertConfig *CertConfig `json:"cert_config,omitempty"`
@@ -211,10 +217,19 @@ func (c *CertConfig) UnmarshalJSON(data []byte) error {
 
 // OutboundConfig defines a custom outbound for kernel
 type OutboundConfig struct {
+	ID       string         `json:"id,omitempty"`
 	Tag      string         `json:"tag"`                 // Unique tag for routing
 	Protocol string         `json:"protocol"`            // vmess, vless, shadowsocks, wireguard, etc.
 	Settings map[string]any `json:"settings,omitempty"`  // Protocol-specific settings
 	ProxyTag string         `json:"proxy_tag,omitempty"` // Chain proxy: next outbound tag
+}
+
+// RouteProfile describes a selectable Reality identity and its outbound.
+// The actual per-user UUID is delivered with User.Identities.
+type RouteProfile struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	OutboundTag string `json:"outbound_tag"`
 }
 
 type BaseConfig struct {
@@ -253,10 +268,21 @@ type RouteAction struct {
 
 // User represents a user returned by the panel
 type User struct {
-	ID          int    `json:"id"`
+	ID          int            `json:"id"`
+	UUID        string         `json:"uuid"`
+	SpeedLimit  int            `json:"speed_limit"`  // Mbps, 0 = unlimited
+	DeviceLimit int            `json:"device_limit"` // max devices, 0 = unlimited
+	Identities  []UserIdentity `json:"identities,omitempty"`
+}
+
+// UserIdentity is a deterministic alternate VLESS credential. Its distinct
+// auth_user value lets both kernels route and account it back to the base user.
+type UserIdentity struct {
+	ProfileID   string `json:"profile_id"`
+	ProfileName string `json:"profile_name"`
 	UUID        string `json:"uuid"`
-	SpeedLimit  int    `json:"speed_limit"`  // Mbps, 0 = unlimited
-	DeviceLimit int    `json:"device_limit"` // max devices, 0 = unlimited
+	AuthUser    string `json:"auth_user"`
+	OutboundTag string `json:"outbound_tag"`
 }
 
 type UsersResponse struct {

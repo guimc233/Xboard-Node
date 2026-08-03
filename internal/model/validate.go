@@ -36,6 +36,20 @@ func ValidateNodeSpec(n *NodeSpec, kcfg config.KernelConfig) error {
 	if err := ValidateCustomRouteRules(n.CustomRouteRules, kernelType, availableTags); err != nil {
 		return fmt.Errorf("validate custom route rules: %w", err)
 	}
+	if len(n.RouteProfiles) > 0 {
+		if !strings.EqualFold(n.Protocol, "vless") || n.TLS != 2 {
+			return fmt.Errorf("route profiles require a VLESS Reality inbound")
+		}
+		for i, profile := range n.RouteProfiles {
+			if strings.TrimSpace(profile.ID) == "" {
+				return fmt.Errorf("route_profiles[%d].id is required", i)
+			}
+			tag := strings.ToLower(strings.TrimSpace(profile.OutboundTag))
+			if _, ok := availableTags[tag]; !ok {
+				return fmt.Errorf("route_profiles[%d].outbound_tag references unknown outbound %q", i, profile.OutboundTag)
+			}
+		}
+	}
 	if err := validateTransportKernel(n.Network, kernelType); err != nil {
 		return err
 	}

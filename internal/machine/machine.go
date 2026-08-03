@@ -257,6 +257,7 @@ func (o *Orchestrator) rediscover(ctx context.Context) {
 func (o *Orchestrator) reportMachineStatus() {
 	s := monitor.Collect()
 	if err := o.client.ReportMachineStatus(
+		o.cfg.Kernel.Type,
 		s.CPU,
 		[2]uint64{s.MemTotal, s.MemUsed},
 		[2]uint64{s.SwapTotal, s.SwapUsed},

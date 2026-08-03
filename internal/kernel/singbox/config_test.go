@@ -48,6 +48,41 @@ func TestBuildInbound_Shadowsocks(t *testing.T) {
 	assertMapValue(t, users[0], "password", "aaaaaaaa-1111-2222-3333-444444444444")
 }
 
+func TestRealityProfileSelectsNormalizedSocksOutbound(t *testing.T) {
+	identity := model.UserIdentity{
+		ProfileID: "profile-1", UUID: "11111111-2222-4333-8444-555555555555",
+		AuthUser: "xb:u:1:rp:profile-1", OutboundTag: "egress-socks",
+	}
+	nc := model.NodeSpecFromPanel(&panel.NodeConfig{
+		Protocol: "vless", ServerPort: 443, TLS: 2,
+		OutboundTemplates: []panel.OutboundConfig{{
+			Tag: "egress-socks", Protocol: "socks5",
+			Settings: map[string]any{"server": "203.0.113.9", "server_port": 1080, "username": "alice", "password": "secret"},
+		}},
+	})
+	users := []model.UserSpec{{ID: 1, UUID: "aaaaaaaa-1111-2222-3333-444444444444", Identities: []model.UserIdentity{identity}}}
+	cfg := buildConfig(config.KernelConfig{Type: "singbox", LogLevel: "warn"}, nc, users, kernel.TLSCert{})
+
+	var socks M
+	for _, outbound := range cfg["outbounds"].([]M) {
+		if outbound["tag"] == "egress-socks" {
+			socks = outbound
+		}
+	}
+	if socks == nil || socks["type"] != "socks" || socks["version"] != "5" || socks["username"] != "alice" {
+		t.Fatalf("unexpected normalized socks outbound: %#v", socks)
+	}
+	usersConfig := cfg["inbounds"].([]M)[0]["users"].([]M)
+	if len(usersConfig) != 2 || usersConfig[1]["name"] != identity.AuthUser || usersConfig[1]["uuid"] != identity.UUID {
+		t.Fatalf("profile identity missing from inbound: %#v", usersConfig)
+	}
+	routeRules := cfg["route"].(M)["rules"].([]M)
+	last := routeRules[len(routeRules)-1]
+	if last["outbound"] != identity.OutboundTag {
+		t.Fatalf("profile route missing: %#v", last)
+	}
+}
+
 func TestBuildInbound_Shadowsocks2022(t *testing.T) {
 	nc := &panel.NodeConfig{
 		Protocol:   "shadowsocks",

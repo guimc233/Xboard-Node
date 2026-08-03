@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cedar2025/xboard-node/internal/buildinfo"
 	"github.com/cedar2025/xboard-node/internal/cert"
 	"github.com/cedar2025/xboard-node/internal/cert/dnsproviders"
 	"github.com/cedar2025/xboard-node/internal/config"
@@ -76,6 +77,10 @@ type Service struct {
 
 	// metricsMu: lastUsers, lastConfig, wsClient, wsDisconnectAt (buildMetrics vs main loop).
 	metricsMu sync.RWMutex
+
+	reportMu       sync.Mutex
+	pendingReport  *controlplane.ReportPayload
+	reportSequence atomic.Uint64
 }
 
 // pullResult carries the outcome of an async pullViaAPI back to the main goroutine.
@@ -975,28 +980,18 @@ func (s *Service) pushReportAsync() {
 		return
 	}
 
-	traffic := s.tracker.FlushTraffic()
-	aliveIPs := s.tracker.FlushAliveIPs()
-	online := s.tracker.CurrentOnline()
-	status := monitor.Collect()
-	metrics := s.buildMetrics(status)
-	metrics["kernel_status"] = s.kernel.IsRunning()
+	report := s.pendingOrCreateReport()
 
 	go func() {
 		defer s.pushActive.Store(false)
-		if err := s.sink.Report(controlplane.ReportPayload{Traffic: traffic, Alive: aliveIPs, Online: online, CPU: status.CPU, Mem: [2]uint64{status.MemTotal, status.MemUsed}, Swap: [2]uint64{status.SwapTotal, status.SwapUsed}, Disk: [2]uint64{status.DiskTotal, status.DiskUsed}, Metrics: metrics}); err != nil {
+		if err := s.sink.Report(*report); err != nil {
 			nlog.Core().Warn("failed to push report", "error", err)
-			if len(traffic) > 0 {
-				s.tracker.RestoreTraffic(traffic)
-			}
-			if len(aliveIPs) > 0 {
-				s.tracker.RestoreAliveIPs(aliveIPs)
-			}
 			s.pushBackoff.onFailure()
 			return
 		}
+		s.ackReport(report.ReportID)
 		s.pushBackoff.onSuccess()
-		nlog.ReportPushed(len(traffic), len(online))
+		nlog.ReportPushed(len(report.Traffic), len(report.Online))
 	}()
 }
 
@@ -1005,15 +1000,57 @@ func (s *Service) pushReportSync() {
 	if !s.sink.SupportsReporting() {
 		return
 	}
-	traffic := s.tracker.FlushTraffic()
-	aliveIPs := s.tracker.FlushAliveIPs()
-	online := s.tracker.CurrentOnline()
+	report := s.pendingOrCreateReport()
+	if err := s.sink.Report(*report); err != nil {
+		nlog.Core().Warn("failed to push final report", "error", err)
+		return
+	}
+	s.ackReport(report.ReportID)
+}
+
+func (s *Service) pendingOrCreateReport() *controlplane.ReportPayload {
+	s.reportMu.Lock()
+	defer s.reportMu.Unlock()
+	if s.pendingReport != nil {
+		return s.pendingReport
+	}
+
 	status := monitor.Collect()
 	metrics := s.buildMetrics(status)
 	metrics["kernel_status"] = s.kernel.IsRunning()
+	s.metricsMu.RLock()
+	var configVersion uint64
+	if s.lastConfig != nil {
+		configVersion = s.lastConfig.ConfigVersion
+	}
+	s.metricsMu.RUnlock()
+	sequence := s.reportSequence.Add(1)
+	report := &controlplane.ReportPayload{
+		ReportID:        fmt.Sprintf("%s-%d", buildinfo.InstanceID, sequence),
+		Sequence:        sequence,
+		AgentInstanceID: buildinfo.InstanceID,
+		AgentVersion:    buildinfo.Version,
+		KernelType:      s.cfg.Kernel.Type,
+		Capabilities:    append([]string(nil), buildinfo.Capabilities...),
+		ConfigVersion:   configVersion,
+		Traffic:         s.tracker.FlushTraffic(),
+		Alive:           s.tracker.CurrentAliveIPs(),
+		Online:          s.tracker.CurrentOnline(),
+		CPU:             status.CPU,
+		Mem:             [2]uint64{status.MemTotal, status.MemUsed},
+		Swap:            [2]uint64{status.SwapTotal, status.SwapUsed},
+		Disk:            [2]uint64{status.DiskTotal, status.DiskUsed},
+		Metrics:         metrics,
+	}
+	s.pendingReport = report
+	return report
+}
 
-	if err := s.sink.Report(controlplane.ReportPayload{Traffic: traffic, Alive: aliveIPs, Online: online, CPU: status.CPU, Mem: [2]uint64{status.MemTotal, status.MemUsed}, Swap: [2]uint64{status.SwapTotal, status.SwapUsed}, Disk: [2]uint64{status.DiskTotal, status.DiskUsed}, Metrics: metrics}); err != nil {
-		nlog.Core().Warn("failed to push final report", "error", err)
+func (s *Service) ackReport(reportID string) {
+	s.reportMu.Lock()
+	defer s.reportMu.Unlock()
+	if s.pendingReport != nil && s.pendingReport.ReportID == reportID {
+		s.pendingReport = nil
 	}
 }
 

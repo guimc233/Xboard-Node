@@ -1,6 +1,8 @@
 package model
 
 import (
+	"strings"
+
 	"github.com/cedar2025/xboard-node/internal/config"
 	"github.com/cedar2025/xboard-node/internal/panel"
 )
@@ -55,7 +57,7 @@ func NodeSpecFromPanel(nc *panel.NodeConfig) *NodeSpec {
 		})
 	}
 
-	outbounds := make([]OutboundConfig, 0, len(nc.CustomOutbounds))
+	outbounds := make([]OutboundConfig, 0, len(nc.CustomOutbounds)+len(nc.OutboundTemplates))
 	for _, outbound := range nc.CustomOutbounds {
 		outbounds = append(outbounds, OutboundConfig{
 			Tag:      outbound.Tag,
@@ -64,9 +66,29 @@ func NodeSpecFromPanel(nc *panel.NodeConfig) *NodeSpec {
 			ProxyTag: outbound.ProxyTag,
 		})
 	}
+	for _, outbound := range nc.OutboundTemplates {
+		protocol := strings.ToLower(strings.TrimSpace(outbound.Protocol))
+		if protocol == "socks5" {
+			protocol = "socks"
+		}
+		outbounds = append(outbounds, OutboundConfig{
+			Tag:        outbound.Tag,
+			Protocol:   protocol,
+			Settings:   cloneAnyMap(outbound.Settings),
+			ProxyTag:   outbound.ProxyTag,
+			Normalized: true,
+		})
+	}
 
-	customRouteRules := make([]CustomRouteRule, 0, len(nc.CustomRouteRules))
-	for _, rule := range nc.CustomRouteRules {
+	routeProfiles := make([]RouteProfile, 0, len(nc.RouteProfiles))
+	for _, profile := range nc.RouteProfiles {
+		routeProfiles = append(routeProfiles, RouteProfile{
+			ID: profile.ID, Name: profile.Name, OutboundTag: profile.OutboundTag,
+		})
+	}
+
+	customRouteRules := make([]CustomRouteRule, 0, len(nc.CustomRouteRules)+len(nc.RouteRulesV2))
+	for _, rule := range append(append([]panel.CustomRouteRule(nil), nc.CustomRouteRules...), nc.RouteRulesV2...) {
 		customRouteRules = append(customRouteRules, CustomRouteRule{
 			Name:     rule.Name,
 			Disabled: rule.Disabled,
@@ -98,6 +120,8 @@ func NodeSpecFromPanel(nc *panel.NodeConfig) *NodeSpec {
 		CustomOutbounds:     outbounds,
 		CustomRoutes:        cloneMapSlice(nc.CustomRoutes),
 		CustomRouteRules:    customRouteRules,
+		ConfigVersion:       nc.ConfigVersion,
+		RouteProfiles:       routeProfiles,
 		CertConfig:          certCfg,
 		AutoTLS:             nc.AutoTLS,
 		Domain:              nc.Domain,
@@ -139,7 +163,14 @@ func UserSpecsFromPanel(users []panel.User) []UserSpec {
 	}
 	out := make([]UserSpec, 0, len(users))
 	for _, user := range users {
-		out = append(out, UserSpec{ID: user.ID, UUID: user.UUID, SpeedLimit: user.SpeedLimit, DeviceLimit: user.DeviceLimit})
+		identities := make([]UserIdentity, 0, len(user.Identities))
+		for _, identity := range user.Identities {
+			identities = append(identities, UserIdentity{
+				ProfileID: identity.ProfileID, ProfileName: identity.ProfileName,
+				UUID: identity.UUID, AuthUser: identity.AuthUser, OutboundTag: identity.OutboundTag,
+			})
+		}
+		out = append(out, UserSpec{ID: user.ID, UUID: user.UUID, SpeedLimit: user.SpeedLimit, DeviceLimit: user.DeviceLimit, Identities: identities})
 	}
 	return out
 }
@@ -195,12 +226,25 @@ func (n *NodeSpec) ToPanel() *panel.NodeConfig {
 	}
 
 	outbounds := make([]panel.OutboundConfig, 0, len(n.CustomOutbounds))
+	outboundTemplates := make([]panel.OutboundConfig, 0, len(n.CustomOutbounds))
 	for _, outbound := range n.CustomOutbounds {
-		outbounds = append(outbounds, panel.OutboundConfig{
+		converted := panel.OutboundConfig{
 			Tag:      outbound.Tag,
 			Protocol: outbound.Protocol,
 			Settings: cloneAnyMap(outbound.Settings),
 			ProxyTag: outbound.ProxyTag,
+		}
+		if outbound.Normalized {
+			outboundTemplates = append(outboundTemplates, converted)
+		} else {
+			outbounds = append(outbounds, converted)
+		}
+	}
+
+	routeProfiles := make([]panel.RouteProfile, 0, len(n.RouteProfiles))
+	for _, profile := range n.RouteProfiles {
+		routeProfiles = append(routeProfiles, panel.RouteProfile{
+			ID: profile.ID, Name: profile.Name, OutboundTag: profile.OutboundTag,
 		})
 	}
 
@@ -235,8 +279,11 @@ func (n *NodeSpec) ToPanel() *panel.NodeConfig {
 		KernelType:          n.KernelType,
 		KernelLogLevel:      n.KernelLogLevel,
 		CustomOutbounds:     outbounds,
+		OutboundTemplates:   outboundTemplates,
 		CustomRoutes:        cloneMapSlice(n.CustomRoutes),
 		CustomRouteRules:    customRouteRules,
+		ConfigVersion:       n.ConfigVersion,
+		RouteProfiles:       routeProfiles,
 		CertConfig:          certCfg,
 		AutoTLS:             n.AutoTLS,
 		Domain:              n.Domain,
@@ -270,7 +317,14 @@ func UserSpecsToPanel(users []UserSpec) []panel.User {
 	}
 	out := make([]panel.User, 0, len(users))
 	for _, user := range users {
-		out = append(out, panel.User{ID: user.ID, UUID: user.UUID, SpeedLimit: user.SpeedLimit, DeviceLimit: user.DeviceLimit})
+		identities := make([]panel.UserIdentity, 0, len(user.Identities))
+		for _, identity := range user.Identities {
+			identities = append(identities, panel.UserIdentity{
+				ProfileID: identity.ProfileID, ProfileName: identity.ProfileName,
+				UUID: identity.UUID, AuthUser: identity.AuthUser, OutboundTag: identity.OutboundTag,
+			})
+		}
+		out = append(out, panel.User{ID: user.ID, UUID: user.UUID, SpeedLimit: user.SpeedLimit, DeviceLimit: user.DeviceLimit, Identities: identities})
 	}
 	return out
 }

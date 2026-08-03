@@ -82,6 +82,47 @@ func TestBuildConfig_OutboundPriority(t *testing.T) {
 	}
 }
 
+func TestRealityProfileSelectsNormalizedOutbound(t *testing.T) {
+	identity := model.UserIdentity{
+		ProfileID: "profile-1", UUID: "11111111-2222-4333-8444-555555555555",
+		AuthUser: "xb:u:1:rp:profile-1", OutboundTag: "egress-ss",
+	}
+	nc := model.NodeSpecFromPanel(&panel.NodeConfig{
+		Protocol: "vless", ServerPort: 443, TLS: 2,
+		OutboundTemplates: []panel.OutboundConfig{{
+			Tag: "egress-ss", Protocol: "shadowsocks",
+			Settings: map[string]any{"server": "203.0.113.8", "server_port": 8388, "method": "aes-128-gcm", "password": "secret"},
+		}},
+	})
+	users := []model.UserSpec{{ID: 1, UUID: "279d4f89-3a2c-488d-a67c-2d39a72acdde", Identities: []model.UserIdentity{identity}}}
+	cfg := buildConfig(testKernelCfg, nc, users, kernel.TLSCert{})
+
+	outbounds := cfg["outbounds"].([]M)
+	var ss M
+	for _, outbound := range outbounds {
+		if outbound["tag"] == "egress-ss" {
+			ss = outbound
+		}
+	}
+	if ss == nil || ss["protocol"] != "shadowsocks" {
+		t.Fatalf("normalized shadowsocks outbound missing: %#v", outbounds)
+	}
+	servers := ss["settings"].(M)["servers"].([]M)
+	if servers[0]["address"] != "203.0.113.8" || servers[0]["port"] != 8388 {
+		t.Fatalf("unexpected xray outbound schema: %#v", servers[0])
+	}
+	inbound := cfg["inbounds"].([]M)[0]
+	clients := inbound["settings"].(M)["clients"].([]M)
+	if len(clients) != 2 || clients[1]["email"] != identity.AuthUser || clients[1]["id"] != identity.UUID {
+		t.Fatalf("profile identity missing from inbound: %#v", clients)
+	}
+	rules := cfg["routing"].(M)["rules"].([]M)
+	last := rules[len(rules)-1]
+	if last["outboundTag"] != identity.OutboundTag {
+		t.Fatalf("profile route missing: %#v", last)
+	}
+}
+
 func TestBuildConfig_AllProtocols_ValidJSON(t *testing.T) {
 	protocols := []struct {
 		name string

@@ -59,7 +59,7 @@ func buildConfig(kcfg config.KernelConfig, nc *model.NodeSpec, users []model.Use
 	}
 
 	// Merge panel routes and static config routes
-	cfg["route"] = buildRoutes(nc.Routes, nc.CustomRouteRules, mergeRouteList(nc.CustomRoutes, kcfg.CustomRoute))
+	cfg["route"] = buildRoutes(nc.Routes, nc.CustomRouteRules, mergeRouteList(nc.CustomRoutes, kcfg.CustomRoute), users)
 
 	// Automatically enable rule_set caching (cache_file) when panel routes
 	// reference geoip:/geosite: entries so that the downloaded .srs rule_set
@@ -81,6 +81,9 @@ func buildConfig(kcfg config.KernelConfig, nc *model.NodeSpec, users []model.Use
 // into a sing-box outbound object. sing-box uses a flat layout where all
 // protocol-specific fields sit at the top level alongside "type" and "tag".
 func outboundConfigToSingbox(oc model.OutboundConfig) M {
+	if oc.Normalized {
+		return normalizedOutboundToSingbox(oc)
+	}
 	m := M{
 		"type": oc.Protocol,
 		"tag":  oc.Tag,
@@ -137,6 +140,25 @@ func outboundConfigToSingbox(oc model.OutboundConfig) M {
 	return m
 }
 
+func normalizedOutboundToSingbox(oc model.OutboundConfig) M {
+	m := M{
+		"type": oc.Protocol, "tag": oc.Tag,
+		"server": oc.Settings["server"], "server_port": oc.Settings["server_port"],
+	}
+	switch strings.ToLower(oc.Protocol) {
+	case "shadowsocks":
+		m["method"] = oc.Settings["method"]
+		m["password"] = oc.Settings["password"]
+	case "socks":
+		m["version"] = "5"
+		if username := strings.TrimSpace(fmt.Sprintf("%v", oc.Settings["username"])); username != "" && username != "<nil>" {
+			m["username"] = username
+			m["password"] = oc.Settings["password"]
+		}
+	}
+	return m
+}
+
 func mergeRouteList(a, b []map[string]any) []map[string]any {
 	res := make([]map[string]any, 0, len(a)+len(b))
 	res = append(res, a...)
@@ -144,7 +166,7 @@ func mergeRouteList(a, b []map[string]any) []map[string]any {
 	return res
 }
 
-func buildRoutes(panelRoutes []model.RouteRule, customRules []model.CustomRouteRule, custom []map[string]any) M {
+func buildRoutes(panelRoutes []model.RouteRule, customRules []model.CustomRouteRule, custom []map[string]any, userSets ...[]model.UserSpec) M {
 	var rules []M
 
 	// Structured custom routes now take the highest priority for panel-managed overrides.
@@ -187,6 +209,19 @@ func buildRoutes(panelRoutes []model.RouteRule, customRules []model.CustomRouteR
 
 	for _, pr := range panelRoutes {
 		rules = append(rules, compilePanelRouteRule(pr)...)
+	}
+
+	if len(userSets) > 0 {
+		for _, user := range userSets[0] {
+			for _, identity := range user.Identities {
+				if identity.AuthUser == "" || identity.OutboundTag == "" {
+					continue
+				}
+				rules = append(rules, M{
+					"auth_user": []string{identity.AuthUser}, "outbound": identity.OutboundTag,
+				})
+			}
+		}
 	}
 
 	return M{
@@ -579,6 +614,13 @@ func buildVLESS(base M, nc *model.NodeSpec, users []model.UserSpec, tc kernel.TL
 			user["flow"] = nc.Flow
 		}
 		userList = append(userList, user)
+		for _, identity := range u.Identities {
+			profileUser := M{"name": identity.AuthUser, "uuid": identity.UUID}
+			if nc.Flow != "" {
+				profileUser["flow"] = nc.Flow
+			}
+			userList = append(userList, profileUser)
+		}
 	}
 	base["users"] = userList
 
