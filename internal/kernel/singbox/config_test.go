@@ -694,6 +694,37 @@ func TestBuildConfig_OutboundPriority(t *testing.T) {
 	}
 }
 
+func TestMergeCustomSingboxRoute_RulesAfterIdentityRoutes(t *testing.T) {
+	cfg := M{
+		"route": M{
+			"rules": []M{
+				{"auth_user": []string{"xb:u:1:rp:sony"}, "outbound": "aether-jp"},
+			},
+		},
+	}
+
+	mergeCustomSingboxRoute(cfg, map[string]any{
+		"rules": []any{
+			map[string]any{"action": "sniff"},
+		},
+		"rules_after": []any{
+			map[string]any{"rule_set": []any{"ai-non-cn"}, "outbound": "sg-ipv6"},
+		},
+	})
+
+	route := cfg["route"].(M)
+	rules := route["rules"].([]M)
+	if len(rules) != 3 {
+		t.Fatalf("rules count: got %d, want 3", len(rules))
+	}
+	assertMapValue(t, rules[0], "action", "sniff")
+	assertMapValue(t, rules[1], "outbound", "aether-jp")
+	assertMapValue(t, rules[2], "outbound", "sg-ipv6")
+	if _, exists := route["rules_after"]; exists {
+		t.Fatal("rules_after must be merged into rules, not emitted to sing-box")
+	}
+}
+
 func TestBuildConfig_AllProtocols_ValidJSON(t *testing.T) {
 	protocols := []struct {
 		name string

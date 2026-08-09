@@ -623,6 +623,18 @@ func mergeCustomSingboxRoute(cfg M, customRoute map[string]any) {
 		}
 	}
 
+	// rules_after — custom rules appended after all generated rules, including
+	// authenticated route-profile identities. This lets a catch-all or
+	// destination-based fallback apply only when no identity route matched,
+	// without changing the established high-priority semantics of rules.
+	if v, ok := customRoute["rules_after"]; ok {
+		if existing, ok := route["rules"].([]M); ok {
+			route["rules"] = kernel.MergeAppendList(existing, v)
+		} else {
+			route["rules"] = kernel.MergeAppendList(nil, v)
+		}
+	}
+
 	// rule_set — custom rule_sets appended
 	if v, ok := customRoute["rule_set"]; ok {
 		if existing, ok := route["rule_set"].([]M); ok {
@@ -634,7 +646,7 @@ func mergeCustomSingboxRoute(cfg M, customRoute map[string]any) {
 
 	// final, auto_detect_interface, default_interface, etc. — custom overrides
 	for k, v := range customRoute {
-		if k == "rules" || k == "rule_set" {
+		if k == "rules" || k == "rules_after" || k == "rule_set" {
 			continue
 		}
 		route[k] = v
