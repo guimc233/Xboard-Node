@@ -34,8 +34,8 @@ type fakeKernel struct {
 	deviceLimitFunc func(string) (int, bool)
 }
 
-func (f *fakeKernel) Name() string { return "fake" }
-func (f *fakeKernel) Protocols() []string { return []string{"vless"} }
+func (f *fakeKernel) Name() string                      { return "fake" }
+func (f *fakeKernel) Protocols() []string               { return []string{"vless"} }
 func (f *fakeKernel) Capabilities() kernel.Capabilities { return kernel.Capabilities{} }
 func (f *fakeKernel) Start(nodeConfig *model.NodeSpec, users []model.UserSpec, tls kernel.TLSCert) error {
 	_, _, _ = nodeConfig, users, tls
@@ -46,7 +46,7 @@ func (f *fakeKernel) Start(nodeConfig *model.NodeSpec, users []model.UserSpec, t
 	f.running = true
 	return nil
 }
-func (f *fakeKernel) Stop() { f.running = false }
+func (f *fakeKernel) Stop()           { f.running = false }
 func (f *fakeKernel) IsRunning() bool { return f.running }
 func (f *fakeKernel) Reload(nodeConfig *model.NodeSpec, users []model.UserSpec, tls kernel.TLSCert) error {
 	_, _, _ = nodeConfig, users, tls
@@ -92,9 +92,9 @@ func (f *fakeKernel) CloseUserConnections(ctx context.Context, uuid string) erro
 	return nil
 }
 func (f *fakeKernel) SetSpeedLimitFunc(fn func(uuid string) *rate.Limiter) { f.speedLimitFunc = fn }
-func (f *fakeKernel) SetDeviceLimitFunc(fn func(uuid string) (int, bool)) { f.deviceLimitFunc = fn }
-func (f *fakeKernel) UpdateGlobalDevices(users map[int][]string) { _ = users }
-func (f *fakeKernel) ClearGlobalDevices() {}
+func (f *fakeKernel) SetDeviceLimitFunc(fn func(uuid string) (int, bool))  { f.deviceLimitFunc = fn }
+func (f *fakeKernel) UpdateGlobalDevices(users map[int][]string)           { _ = users }
+func (f *fakeKernel) ClearGlobalDevices()                                  {}
 
 func newTestService(k *fakeKernel) *Service {
 	sharedLimiter := limiter.New()
@@ -198,6 +198,38 @@ func TestApplyUserDeltaAddPreparesLimiterBeforeKernelUpdate(t *testing.T) {
 	}
 }
 
+func TestComputeUserHashIncludesRouteProfileIdentities(t *testing.T) {
+	base := model.UserSpec{ID: 79, UUID: "aaaaaaaa-1111-4222-8333-444444444444"}
+	withBage := base
+	withBage.Identities = []model.UserIdentity{{
+		ProfileID:   "profile-bage",
+		ProfileName: "Bage",
+		UUID:        "bbbbbbbb-1111-4222-8333-444444444444",
+		AuthUser:    "xb:u:79:rp:profile-bage",
+		OutboundTag: "BageHK",
+	}}
+	withAether := withBage
+	withAether.Identities = append(append([]model.UserIdentity(nil), withBage.Identities...), model.UserIdentity{
+		ProfileID:   "profile-aether",
+		ProfileName: "Aether",
+		UUID:        "cccccccc-1111-4222-8333-444444444444",
+		AuthUser:    "xb:u:79:rp:profile-aether",
+		OutboundTag: "AetherHK",
+	})
+
+	if computeUserHash([]model.UserSpec{base}) == computeUserHash([]model.UserSpec{withBage}) {
+		t.Fatal("adding a route-profile identity must change the user hash")
+	}
+	if computeUserHash([]model.UserSpec{withBage}) == computeUserHash([]model.UserSpec{withAether}) {
+		t.Fatal("adding a second route-profile identity must change the user hash")
+	}
+
+	reordered := withAether
+	reordered.Identities = []model.UserIdentity{withAether.Identities[1], withAether.Identities[0]}
+	if computeUserHash([]model.UserSpec{withAether}) != computeUserHash([]model.UserSpec{reordered}) {
+		t.Fatal("route-profile identity order must not affect the user hash")
+	}
+}
 
 func TestValidateNodeRuntimeRejectsUnsupportedDNSProvider(t *testing.T) {
 	cfg := &config.Config{Kernel: config.KernelConfig{Type: "singbox"}}

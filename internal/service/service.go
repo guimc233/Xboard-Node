@@ -1160,6 +1160,30 @@ func computeUserHash(users []model.UserSpec) string {
 		h.Write(buf[:])
 		binary.LittleEndian.PutUint64(buf[:], uint64(u.DeviceLimit))
 		h.Write(buf[:])
+
+		// Route-profile identities are credentials too. A profile can be added,
+		// removed, or rebound without changing the base user UUID or limits. If
+		// identities are omitted here, REST polling sees an unchanged user set
+		// and reloads structural config with stale inbound credentials.
+		identities := append([]model.UserIdentity(nil), u.Identities...)
+		sort.Slice(identities, func(i, j int) bool {
+			left, right := identities[i], identities[j]
+			if left.ProfileID != right.ProfileID {
+				return left.ProfileID < right.ProfileID
+			}
+			if left.UUID != right.UUID {
+				return left.UUID < right.UUID
+			}
+			if left.AuthUser != right.AuthUser {
+				return left.AuthUser < right.AuthUser
+			}
+			if left.OutboundTag != right.OutboundTag {
+				return left.OutboundTag < right.OutboundTag
+			}
+			return left.ProfileName < right.ProfileName
+		})
+		identityData, _ := json.Marshal(identities)
+		h.Write(identityData)
 	}
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
