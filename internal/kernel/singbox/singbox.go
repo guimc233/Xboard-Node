@@ -130,6 +130,18 @@ func (s *SingBox) startLocked(nodeConfig *model.NodeSpec, users []model.UserSpec
 		return fmt.Errorf("create sing-box instance: %w", err)
 	}
 
+	// A structural reload keeps existing connections alive, but the replacement
+	// instance cannot bind the same inbound port until the old listener closes.
+	// Build the replacement first so configuration errors do not interrupt the
+	// live listener, then release only the old accept sockets before Start.
+	if oldBox != nil {
+		if err := closeInboundListeners(oldCtx); err != nil {
+			instance.Close()
+			cancel()
+			return fmt.Errorf("close old inbound listeners: %w", err)
+		}
+	}
+
 	if err := instance.Start(); err != nil {
 		instance.Close()
 		cancel()
@@ -171,9 +183,7 @@ func (s *SingBox) startLocked(nodeConfig *model.NodeSpec, users []model.UserSpec
 // then hard-closes. This avoids blocking the new instance's startup.
 func recycleOldBox(oldBox *box.Box, oldCancel context.CancelFunc, oldCtx context.Context, oldTracker *ConnTracker) {
 	// Step 1: close listen sockets so no new connections arrive on old ports.
-	if im := service.FromContext[adapter.InboundManager](oldCtx); im != nil {
-		_ = im.Close()
-	}
+	_ = closeInboundListeners(oldCtx)
 
 	// Step 2: drain in-flight connections (best-effort).
 	if oldTracker != nil {
@@ -194,11 +204,18 @@ func recycleOldBox(oldBox *box.Box, oldCancel context.CancelFunc, oldCtx context
 	nlog.Core().Debug("sing-box: old instance recycled")
 }
 
+func closeInboundListeners(ctx context.Context) error {
+	if im := service.FromContext[adapter.InboundManager](ctx); im != nil {
+		return im.Close()
+	}
+	return nil
+}
+
 // Reload hot-swaps users when the kernel configuration is unchanged. Any
-// structural change (inbound, TLS, outbound, route, or rule-set) replaces the
-// whole box atomically. sing-box's Router.UpdateRules cannot safely introduce a
-// new rule-set before that rule-set is present in the live router map, and its
-// outbound manager is not updated by that API.
+// structural change (inbound, TLS, outbound, route, or rule-set) hands off the
+// listener and replaces the whole box. sing-box's Router.UpdateRules cannot
+// safely introduce a new rule-set before that rule-set is present in the live
+// router map, and its outbound manager is not updated by that API.
 func (s *SingBox) Reload(nodeConfig *model.NodeSpec, users []model.UserSpec, tls kernel.TLSCert) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/cedar2025/xboard-node/internal/config"
+	"github.com/cedar2025/xboard-node/internal/kernel"
+	"github.com/cedar2025/xboard-node/internal/model"
 	"github.com/sagernet/sing-box/adapter"
 	singM "github.com/sagernet/sing/common/metadata"
 	"golang.org/x/time/rate"
@@ -33,6 +35,42 @@ func TestSingBoxCapabilities(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("Protocols() missing hysteria: %v", protocols)
+	}
+}
+
+func TestSingBoxStructuralReloadReusesInboundPort(t *testing.T) {
+	listener, err := net.Listen("tcp6", "[::]:0")
+	if err != nil {
+		t.Fatalf("reserve TCP port: %v", err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	if err := listener.Close(); err != nil {
+		t.Fatalf("release TCP port: %v", err)
+	}
+
+	s := New(config.KernelConfig{Type: "singbox", ConfigDir: t.TempDir(), LogLevel: "error"})
+	initial := &model.NodeSpec{
+		Protocol:   "shadowsocks",
+		ServerPort: port,
+		Cipher:     "aes-128-gcm",
+	}
+	users := []model.UserSpec{{ID: 1, UUID: "reload-test-password"}}
+	if err := s.Start(initial, users, kernel.TLSCert{}); err != nil {
+		t.Fatalf("start sing-box: %v", err)
+	}
+	t.Cleanup(s.Stop)
+
+	changed := *initial
+	changed.CustomRouteRules = []model.CustomRouteRule{{
+		Name:   "structural-change",
+		Match:  model.RouteMatch{DomainSuffixes: []string{"example.com"}},
+		Action: model.RouteAction{Type: "direct"},
+	}}
+	if err := s.Reload(&changed, users, kernel.TLSCert{}); err != nil {
+		t.Fatalf("reload sing-box on the same inbound port: %v", err)
+	}
+	if !s.IsRunning() {
+		t.Fatal("sing-box is not running after structural reload")
 	}
 }
 
