@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -107,6 +109,22 @@ func newTestService(k *fakeKernel) *Service {
 	k.SetSpeedLimitFunc(s.speedTracker.GetLimiter)
 	k.SetDeviceLimitFunc(s.limiter.GetDeviceLimitByUUID)
 	return s
+}
+
+func TestEnsureKernelConfigDirCreatesMachineNodeDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "instances", "machine-15", "node-136")
+	cfg := &config.Config{Kernel: config.KernelConfig{ConfigDir: dir}}
+
+	if err := ensureKernelConfigDir(cfg); err != nil {
+		t.Fatalf("ensure kernel config dir: %v", err)
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("stat kernel config dir: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("kernel config path is not a directory: %s", dir)
+	}
 }
 
 func TestApplyUserUpdatePreparesLimiterBeforeKernelUpdate(t *testing.T) {

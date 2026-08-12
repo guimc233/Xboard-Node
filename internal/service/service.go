@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -174,6 +175,10 @@ func newService(cfg *config.Config, cp controlplane.ControlPlane) *Service {
 }
 
 func (s *Service) Run(ctx context.Context) error {
+	if err := ensureKernelConfigDir(s.cfg); err != nil {
+		return err
+	}
+
 	// Start cert manager (handles auto-TLS or manual cert verification)
 	if err := s.cert.Start(ctx); err != nil {
 		return fmt.Errorf("cert manager: %w", err)
@@ -247,6 +252,17 @@ func (s *Service) Run(ctx context.Context) error {
 			s.handleWSEvent(ctx, event)
 		}
 	}
+}
+
+func ensureKernelConfigDir(cfg *config.Config) error {
+	dir := strings.TrimSpace(cfg.Kernel.ConfigDir)
+	if dir == "" {
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create kernel config dir %s: %w", dir, err)
+	}
+	return nil
 }
 
 func (s *Service) initialSetup(ctx context.Context) error {
