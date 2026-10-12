@@ -1040,18 +1040,20 @@ func (s *Service) pendingOrCreateReport() *controlplane.ReportPayload {
 		Sequence:        sequence,
 		AgentInstanceID: buildinfo.InstanceID,
 		AgentVersion:    buildinfo.Version,
-		KernelType:      s.cfg.Kernel.Type,
-		Capabilities:    append([]string(nil), buildinfo.Capabilities...),
-		ConfigVersion:   configVersion,
-		Traffic:         s.tracker.FlushTraffic(),
-		ProfileTraffic:  s.tracker.FlushProfileTraffic(),
-		Alive:           s.tracker.CurrentAliveIPs(),
-		Online:          s.tracker.CurrentOnline(),
-		CPU:             status.CPU,
-		Mem:             [2]uint64{status.MemTotal, status.MemUsed},
-		Swap:            [2]uint64{status.SwapTotal, status.SwapUsed},
-		Disk:            [2]uint64{status.DiskTotal, status.DiskUsed},
-		Metrics:         metrics,
+		// Report the running backend's own name so the panel can never be told
+		// about a kernel the agent is not actually driving.
+		KernelType:     s.kernel.Name(),
+		Capabilities:   append([]string(nil), buildinfo.Capabilities...),
+		ConfigVersion:  configVersion,
+		Traffic:        s.tracker.FlushTraffic(),
+		ProfileTraffic: s.tracker.FlushProfileTraffic(),
+		Alive:          s.tracker.CurrentAliveIPs(),
+		Online:         s.tracker.CurrentOnline(),
+		CPU:            status.CPU,
+		Mem:            [2]uint64{status.MemTotal, status.MemUsed},
+		Swap:           [2]uint64{status.SwapTotal, status.SwapUsed},
+		Disk:           [2]uint64{status.DiskTotal, status.DiskUsed},
+		Metrics:        metrics,
 	}
 	s.pendingReport = report
 	return report
