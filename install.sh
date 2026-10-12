@@ -758,7 +758,12 @@ install_mihomo() {
         return 0
     fi
     install -m 755 "$TMP_DIR/mihomo" "$MIHOMO_INSTALL_PATH"
-    log_info "mihomo installed: $("$MIHOMO_INSTALL_PATH" -v 2>/dev/null | head -n1)"
+    # Read the whole output before keeping a line. Piping `mihomo -v` into
+    # `head` closes the pipe while mihomo is still writing, which raises
+    # SIGPIPE (exit 141); under `set -o pipefail` that aborts the install.
+    local version_output
+    version_output=$("$MIHOMO_INSTALL_PATH" -v 2>/dev/null || true)
+    log_info "mihomo installed: ${version_output%%$'\n'*}"
 }
 
 render_config() {
@@ -1055,7 +1060,9 @@ perform_status() {
             # Simple key extraction from JSON (no Python needed)
             local val
             for key in config_mode version latest_instance_id instance_count updated_at; do
-                val=$(sed -n "s/.*\"${key}\": *\"\{0,1\}\([^\"]*\)\"\{0,1\}.*/\1/p" "$INSTALL_META" | head -1)
+                # `sed -n 1p` drains its input, unlike `head -1`, which would
+                # SIGPIPE the upstream sed and fail under `set -o pipefail`.
+                val=$(sed -n "s/.*\"${key}\": *\"\{0,1\}\([^\"]*\)\"\{0,1\}.*/\1/p" "$INSTALL_META" | sed -n 1p)
                 val="${val%,}"  # strip trailing comma from numeric JSON values
                 [ -n "$val" ] && echo "  ${key}: ${val}"
             done
