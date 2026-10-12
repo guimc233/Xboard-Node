@@ -51,7 +51,9 @@ func BuildConfig(spec *model.NodeSpec, users []model.UserSpec, tls kernel.TLSCer
 
 	doc := baseConfig(spec, opts)
 
-	listeners, err := buildListeners(spec, users, tls)
+	credentials := userCredentials(users)
+
+	listeners, err := buildListeners(spec, credentials, tls)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +69,7 @@ func BuildConfig(spec *model.NodeSpec, users []model.UserSpec, tls kernel.TLSCer
 		doc["proxies"] = append(existing, opts.ExtraProxies...)
 	}
 
-	rules := buildRules(spec, users)
+	rules := buildRules(spec, credentials)
 	if len(rules) > 0 {
 		doc["rules"] = rules
 	}
@@ -129,20 +131,54 @@ func baseConfig(spec *model.NodeSpec, opts Options) map[string]any {
 	return doc
 }
 
-type userEntry struct {
-	Username string
-	UUID     string
-	Password string
+// userCredential is one authenticatable credential of a user.
+//
+// The listener username is always the credential itself. That is not a style
+// choice: mihomo authenticates the username/password inbounds (http, socks,
+// mixed, trusttunnel, shadowquic) with HTTP Basic, whose userid ends at the
+// first colon, and it keys the tuic and mieru user maps by uuid/username. The
+// panel's subscription already sends the credential as the username for those
+// inbounds, so anything else fails authentication.
+type userCredential struct {
+	Username  string
+	UserID    int
+	ProfileID string
+}
+
+// userCredentials expands every user and route-profile identity into the
+// credentials the listener must accept.
+func userCredentials(users []model.UserSpec) []userCredential {
+	out := make([]userCredential, 0, len(users))
+	for _, user := range users {
+		if user.UUID == "" {
+			continue
+		}
+		out = append(out, userCredential{
+			Username: user.UUID,
+			UserID:   user.ID,
+		})
+		for _, identity := range user.Identities {
+			credential := identity.UUID
+			if credential == "" {
+				credential = user.UUID
+			}
+			out = append(out, userCredential{
+				Username:  credential,
+				UserID:    user.ID,
+				ProfileID: identity.ProfileID,
+			})
+		}
+	}
+	return out
 }
 
 // buildListeners clones the panel listeners and injects the user list.
-func buildListeners(spec *model.NodeSpec, users []model.UserSpec, tls kernel.TLSCert) ([]map[string]any, error) {
+func buildListeners(spec *model.NodeSpec, credentials []userCredential, tls kernel.TLSCert) ([]map[string]any, error) {
 	if spec.Mihomo == nil || len(spec.Mihomo.Listeners) == 0 {
 		return nil, fmt.Errorf("mihomo: node %q has no mihomo listeners in its config; upgrade the panel or re-save the node", spec.Protocol)
 	}
 
 	shape := strings.TrimSpace(spec.UsersShape)
-	entries := userEntries(users)
 
 	listeners := make([]map[string]any, 0, len(spec.Mihomo.Listeners))
 	for _, raw := range spec.Mihomo.Listeners {
@@ -153,7 +189,7 @@ func buildListeners(spec *model.NodeSpec, users []model.UserSpec, tls kernel.TLS
 			listener["private-key"] = string(tls.KeyPEM)
 		}
 
-		if shaped := shapeUsers(shape, entries); shaped != nil {
+		if shaped := shapeUsers(shape, credentials); shaped != nil {
 			listener["users"] = shaped
 		}
 
@@ -168,70 +204,37 @@ func hasTLSMaterial(listener map[string]any) bool {
 	return cert != "" && key != ""
 }
 
-// userEntries flattens panel users and their routing identities into the
-// credential set the listener authenticates. The panel's `auth_user` is the
-// stable login name; for the base identity it is derived from the user id.
-func userEntries(users []model.UserSpec) []userEntry {
-	entries := make([]userEntry, 0, len(users))
-	for _, user := range users {
-		if user.UUID == "" {
-			continue
-		}
-		entries = append(entries, userEntry{
-			Username: fmt.Sprintf("xb:u:%d", user.ID),
-			UUID:     user.UUID,
-			Password: user.UUID,
-		})
-		for _, identity := range user.Identities {
-			username := strings.TrimSpace(identity.AuthUser)
-			if username == "" {
-				username = fmt.Sprintf("xb:u:%d:rp:%s", user.ID, identity.ProfileID)
-			}
-			credential := identity.UUID
-			if credential == "" {
-				credential = user.UUID
-			}
-			entries = append(entries, userEntry{
-				Username: username,
-				UUID:     credential,
-				Password: credential,
-			})
-		}
-	}
-	return entries
-}
-
 // shapeUsers renders the container mihomo expects for the inbound type.
 // A nil result means the inbound authenticates with a single credential
 // (shadowsocks, snell) and must not carry a users list.
-func shapeUsers(shape string, entries []userEntry) any {
-	if shape == "" || len(entries) == 0 {
+func shapeUsers(shape string, credentials []userCredential) any {
+	if shape == "" || len(credentials) == 0 {
 		return nil
 	}
 
 	switch shape {
 	case model.MihomoUsersMap:
-		out := make(map[string]string, len(entries))
-		for _, entry := range entries {
-			out[entry.Username] = entry.Password
+		out := make(map[string]string, len(credentials))
+		for _, entry := range credentials {
+			out[entry.Username] = entry.Username
 		}
 		return out
 	case model.MihomoUsersArrayUserPassword:
-		out := make([]map[string]any, 0, len(entries))
-		for _, entry := range entries {
-			out = append(out, map[string]any{"username": entry.Username, "password": entry.Password})
+		out := make([]map[string]any, 0, len(credentials))
+		for _, entry := range credentials {
+			out = append(out, map[string]any{"username": entry.Username, "password": entry.Username})
 		}
 		return out
 	case model.MihomoUsersArrayUUID:
-		out := make([]map[string]any, 0, len(entries))
-		for _, entry := range entries {
-			out = append(out, map[string]any{"username": entry.Username, "uuid": entry.UUID})
+		out := make([]map[string]any, 0, len(credentials))
+		for _, entry := range credentials {
+			out = append(out, map[string]any{"username": entry.Username, "uuid": entry.Username})
 		}
 		return out
 	case model.MihomoUsersArrayPassword:
-		out := make([]map[string]any, 0, len(entries))
-		for _, entry := range entries {
-			out = append(out, map[string]any{"username": entry.Username, "password": entry.Password})
+		out := make([]map[string]any, 0, len(credentials))
+		for _, entry := range credentials {
+			out = append(out, map[string]any{"username": entry.Username, "password": entry.Username})
 		}
 		return out
 	default:
@@ -242,7 +245,7 @@ func shapeUsers(shape string, entries []userEntry) any {
 // buildRules prepends the per-route-profile dispatch rules. mihomo selects an
 // exit with IN-USER, which is how the panel's route profiles are expressed for
 // this kernel.
-func buildRules(spec *model.NodeSpec, users []model.UserSpec) []string {
+func buildRules(spec *model.NodeSpec, credentials []userCredential) []string {
 	var rules []string
 
 	// mihomo expresses a route profile with an IN-USER rule, which needs a
@@ -254,7 +257,7 @@ func buildRules(spec *model.NodeSpec, users []model.UserSpec) []string {
 			"protocol", spec.Protocol, "profiles", len(spec.RouteProfiles))
 	}
 
-	profilesByUser := routeProfileTargets(spec, users)
+	profilesByUser := routeProfileTargets(spec, credentials)
 	if len(profilesByUser) > 0 {
 		ordered := make([]string, 0, len(profilesByUser))
 		for username := range profilesByUser {
@@ -278,9 +281,10 @@ func buildRules(spec *model.NodeSpec, users []model.UserSpec) []string {
 	return rules
 }
 
-// routeProfileTargets maps each identity's auth-user to its outbound tag.
-func routeProfileTargets(spec *model.NodeSpec, users []model.UserSpec) map[string]string {
-	if len(spec.RouteProfiles) == 0 || len(users) == 0 {
+// routeProfileTargets maps each identity's listener username to its outbound
+// tag, which is how a route profile selects its exit.
+func routeProfileTargets(spec *model.NodeSpec, credentials []userCredential) map[string]string {
+	if len(spec.RouteProfiles) == 0 || len(credentials) == 0 {
 		return nil
 	}
 	byProfile := make(map[string]string, len(spec.RouteProfiles))
@@ -295,17 +299,12 @@ func routeProfileTargets(spec *model.NodeSpec, users []model.UserSpec) map[strin
 	}
 
 	out := map[string]string{}
-	for _, user := range users {
-		for _, identity := range user.Identities {
-			target, ok := byProfile[identity.ProfileID]
-			if !ok {
-				continue
-			}
-			username := strings.TrimSpace(identity.AuthUser)
-			if username == "" {
-				continue
-			}
-			out[username] = target
+	for _, credential := range credentials {
+		if credential.ProfileID == "" {
+			continue
+		}
+		if target, ok := byProfile[credential.ProfileID]; ok {
+			out[credential.Username] = target
 		}
 	}
 	return out

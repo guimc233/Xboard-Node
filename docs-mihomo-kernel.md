@@ -71,6 +71,34 @@ Authentication is `Authorization: Bearer <secret>`.
 `/connections` also has a websocket form; polling is simpler and matches the
 agent's existing push interval.
 
+## Listener username is the credential
+
+Every generated credential uses the identity's UUID as **both** the listener
+username and the password:
+
+```yaml
+listeners:
+  - name: hk-1
+    type: mixed
+    users:
+      - username: 11111111-1111-1111-1111-111111111111
+        password: 11111111-1111-1111-1111-111111111111
+```
+
+This is not cosmetic. For `http`, `socks`, `mixed`, `trusttunnel` and
+`shadowquic`, mihomo authenticates with HTTP Basic, whose userid ends at the
+**first colon** — so a label such as `xb:u:7` can never authenticate (the kernel
+reads the userid as `xb`). For `tuic` and `mieru`, mihomo keys the user map by
+uuid and username respectively, so the key must be the credential too.
+
+The panel's subscription already sends the credential as the username for those
+inbounds, so both sides agree. The panel's `auth_user` label is still accepted as
+an attribution fallback but is not used for authentication.
+
+Route profiles are dispatched with an `IN-USER` rule naming the **credential** of
+the profile's identity, so a profile selects its exit by authenticating as its
+own credential.
+
 ## Per-user attribution
 
 `metadata.inboundUser` (Go field `InUser`) carries the authenticated listener

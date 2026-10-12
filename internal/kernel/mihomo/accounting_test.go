@@ -81,8 +81,8 @@ func accountingUsers() []model.UserSpec {
 
 const firstPoll = `{
   "connections": [
-    {"id":"a","upload":100,"download":1000,"metadata":{"inboundUser":"xb:u:7","sourceIP":"203.0.113.1"}},
-    {"id":"b","upload":50,"download":500,"metadata":{"inboundUser":"xb:u:7:rp:profile-1","sourceIP":"203.0.113.2"}},
+    {"id":"a","upload":100,"download":1000,"metadata":{"inboundUser":"11111111-1111-1111-1111-111111111111","sourceIP":"203.0.113.1"}},
+    {"id":"b","upload":50,"download":500,"metadata":{"inboundUser":"22222222-2222-2222-2222-222222222222","sourceIP":"203.0.113.2"}},
     {"id":"c","upload":10,"download":20,"metadata":{"inboundUser":"","sourceIP":"203.0.113.3"}},
     {"id":"d","upload":5,"download":5,"metadata":{"inboundUser":"xb:u:999","sourceIP":"203.0.113.4"}}
   ]
@@ -91,8 +91,8 @@ const firstPoll = `{
 // Second poll: connection "a" grew, "b" is gone, "e" is new.
 const secondPoll = `{
   "connections": [
-    {"id":"a","upload":150,"download":1600,"metadata":{"inboundUser":"xb:u:7","sourceIP":"203.0.113.1"}},
-    {"id":"e","upload":7,"download":7,"metadata":{"inboundUser":"xb:u:8","sourceIP":"203.0.113.5"}}
+    {"id":"a","upload":150,"download":1600,"metadata":{"inboundUser":"11111111-1111-1111-1111-111111111111","sourceIP":"203.0.113.1"}},
+    {"id":"e","upload":7,"download":7,"metadata":{"inboundUser":"33333333-3333-3333-3333-333333333333","sourceIP":"203.0.113.5"}}
   ]
 }`
 
@@ -162,14 +162,14 @@ func TestAccountingHandlesClosedConnections(t *testing.T) {
 func TestCloseUserConnectionsResolvesCredentials(t *testing.T) {
 	k, script := accountingKernel(t, []string{
 		`{"connections":[
-		   {"id":"a","metadata":{"inboundUser":"xb:u:7"}},
-		   {"id":"b","metadata":{"inboundUser":"xb:u:7:rp:profile-1"}},
-		   {"id":"c","metadata":{"inboundUser":"xb:u:8"}}
+		   {"id":"a","metadata":{"inboundUser":"11111111-1111-1111-1111-111111111111"}},
+		   {"id":"b","metadata":{"inboundUser":"22222222-2222-2222-2222-222222222222"}},
+		   {"id":"c","metadata":{"inboundUser":"33333333-3333-3333-3333-333333333333"}}
 		 ]}`,
 		`{"connections":[
-		   {"id":"a","metadata":{"inboundUser":"xb:u:7"}},
-		   {"id":"b","metadata":{"inboundUser":"xb:u:7:rp:profile-1"}},
-		   {"id":"c","metadata":{"inboundUser":"xb:u:8"}}
+		   {"id":"a","metadata":{"inboundUser":"11111111-1111-1111-1111-111111111111"}},
+		   {"id":"b","metadata":{"inboundUser":"22222222-2222-2222-2222-222222222222"}},
+		   {"id":"c","metadata":{"inboundUser":"33333333-3333-3333-3333-333333333333"}}
 		 ]}`,
 	}, accountingUsers())
 

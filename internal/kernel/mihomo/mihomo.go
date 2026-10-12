@@ -496,25 +496,38 @@ func (m *Mihomo) resetAccounting(users []model.UserSpec) {
 	m.uuidUsernames = make(map[string][]string, len(users))
 
 	for _, user := range users {
+		// mihomo reports the listener username, which is the credential for
+		// every shape. The panel's auth_user label is registered as a fallback
+		// so attribution survives either spelling.
+		if user.UUID != "" {
+			m.usernameUser[user.UUID] = user.ID
+			m.uuidUsernames[user.UUID] = append(m.uuidUsernames[user.UUID], user.UUID)
+		}
 		base := baseUsername(user.ID)
 		m.usernameUser[base] = user.ID
-		// The interface closes connections by the user's own UUID, so every
-		// credential of that user (base + route-profile identities) is filed
-		// under it.
 		if user.UUID != "" {
 			m.uuidUsernames[user.UUID] = append(m.uuidUsernames[user.UUID], base)
 		}
+
 		for _, identity := range user.Identities {
-			username := strings.TrimSpace(identity.AuthUser)
-			if username == "" {
-				continue
+			credential := identity.UUID
+			if credential == "" {
+				credential = user.UUID
 			}
-			m.usernameUser[username] = user.ID
-			if identity.ProfileID != "" {
-				m.usernameToProf[username] = identity.ProfileID
+			if credential != "" {
+				m.usernameUser[credential] = user.ID
+				if identity.ProfileID != "" {
+					m.usernameToProf[credential] = identity.ProfileID
+				}
+				if user.UUID != "" {
+					m.uuidUsernames[user.UUID] = append(m.uuidUsernames[user.UUID], credential)
+				}
 			}
-			if user.UUID != "" {
-				m.uuidUsernames[user.UUID] = append(m.uuidUsernames[user.UUID], username)
+			if label := strings.TrimSpace(identity.AuthUser); label != "" {
+				m.usernameUser[label] = user.ID
+				if identity.ProfileID != "" {
+					m.usernameToProf[label] = identity.ProfileID
+				}
 			}
 		}
 	}

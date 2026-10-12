@@ -67,14 +67,20 @@ func TestBuildConfigInjectsUsersMapShape(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected map users, got %#v", listeners[0]["users"])
 	}
-	if users["xb:u:7"] != "11111111-1111-1111-1111-111111111111" {
-		t.Errorf("base user missing: %#v", users)
+	// The listener username is the credential: mihomo authenticates the
+	// username/password inbounds with HTTP Basic, whose userid ends at the
+	// first colon, so a `xb:u:7` label can never authenticate.
+	for _, credential := range []string{
+		"11111111-1111-1111-1111-111111111111",
+		"22222222-2222-2222-2222-222222222222",
+		"33333333-3333-3333-3333-333333333333",
+	} {
+		if users[credential] != credential {
+			t.Errorf("credential %s missing from the users map: %#v", credential, users)
+		}
 	}
-	if users["xb:u:7:rp:profile-1"] != "22222222-2222-2222-2222-222222222222" {
-		t.Errorf("route profile identity missing: %#v", users)
-	}
-	if users["xb:u:8"] != "33333333-3333-3333-3333-333333333333" {
-		t.Errorf("second user missing: %#v", users)
+	if _, ok := users["xb:u:7"]; ok {
+		t.Errorf("a colon-bearing label must not be used as a username: %#v", users)
 	}
 }
 
@@ -117,8 +123,8 @@ func TestBuildConfigShapesUsersPerInbound(t *testing.T) {
 				if !ok || len(list) != 3 {
 					t.Fatalf("expected 3 array entries, got %#v", users)
 				}
-				if list[0]["username"] != "xb:u:7" {
-					t.Errorf("username missing: %#v", list[0])
+				if list[0]["username"] != "11111111-1111-1111-1111-111111111111" {
+					t.Errorf("username must be the credential: %#v", list[0])
 				}
 			},
 		},
@@ -153,7 +159,7 @@ func TestBuildConfigRouteProfileRules(t *testing.T) {
 	if !ok || len(rules) == 0 {
 		t.Fatalf("expected rules, got %#v", doc["rules"])
 	}
-	if rules[0] != "IN-USER,xb:u:7:rp:profile-1,warp" {
+	if rules[0] != "IN-USER,22222222-2222-2222-2222-222222222222,warp" {
 		t.Errorf("route profile rule must come first, got %q", rules[0])
 	}
 	// The panel's own rules and the terminal MATCH must survive.
