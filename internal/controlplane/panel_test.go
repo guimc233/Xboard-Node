@@ -15,7 +15,7 @@ func TestPanelControlPlaneInitialRejectsInvalidCustomOutbounds(t *testing.T) {
 	server := newPanelTestServer(`{"protocol":"shadowsocks","server_port":8388,"custom_outbounds":[{"tag":"proxy","protocol":"socks","proxy_tag":"missing","settings":{"server":"2.2.2.2","server_port":1080}}]}`)
 	defer server.Close()
 
-	cp := NewPanelControlPlane(config.PanelConfig{URL: server.URL, Token: "token", NodeID: 1}, config.WSConfig{}, config.KernelConfig{Type: "singbox"})
+	cp := NewPanelControlPlane(config.PanelConfig{URL: server.URL, Token: "token", NodeID: 1}, config.WSConfig{}, config.KernelConfig{Type: "mihomo"})
 	_, err := cp.Initial(context.Background(), nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -29,7 +29,7 @@ func TestPanelControlPlanePollRejectsInvalidCustomOutbounds(t *testing.T) {
 	server := newPanelTestServer(`{"protocol":"shadowsocks","server_port":8388,"custom_outbounds":[{"tag":"proxy","protocol":"socks","proxy_tag":"missing","settings":{"server":"2.2.2.2","server_port":1080}}]}`)
 	defer server.Close()
 
-	cp := NewPanelControlPlane(config.PanelConfig{URL: server.URL, Token: "token", NodeID: 1}, config.WSConfig{}, config.KernelConfig{Type: "singbox"})
+	cp := NewPanelControlPlane(config.PanelConfig{URL: server.URL, Token: "token", NodeID: 1}, config.WSConfig{}, config.KernelConfig{Type: "mihomo"})
 	_, err := cp.Poll(context.Background())
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -49,7 +49,7 @@ func TestTranslateWSEventRejectsInvalidCustomOutbounds(t *testing.T) {
 				{Tag: "proxy", Protocol: "socks", ProxyTag: "missing", Settings: map[string]any{"server": "2.2.2.2", "server_port": 1080}},
 			},
 		},
-	}, config.KernelConfig{Type: "singbox"})
+	}, config.KernelConfig{Type: "mihomo"})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -82,14 +82,14 @@ func TestTranslateWSEventRejectsUnsupportedProtocolForKernel(t *testing.T) {
 			Protocol:   "shadowsocks",
 			ServerPort: 8388,
 			CustomOutbounds: []panelapi.OutboundConfig{
-				{Tag: "hy2", Protocol: "hysteria2", Settings: map[string]any{"server": "2.2.2.2", "server_port": 8443}},
+				{Tag: "ovpn", Protocol: "openvpn", Settings: map[string]any{"server": "2.2.2.2", "server_port": 1194}},
 			},
 		},
-	}, config.KernelConfig{Type: "xray"})
+	}, config.KernelConfig{Type: "mihomo"})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !strings.Contains(err.Error(), `translate node config: validate custom outbounds: custom_outbounds[0].protocol "hysteria2" is not supported by kernel "xray"`) {
+	if !strings.Contains(err.Error(), `translate node config: validate custom outbounds: custom_outbounds[0].protocol "openvpn" is not supported by kernel "mihomo"`) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

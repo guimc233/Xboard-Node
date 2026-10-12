@@ -250,7 +250,7 @@ func TestComputeUserHashIncludesRouteProfileIdentities(t *testing.T) {
 }
 
 func TestValidateNodeRuntimeRejectsUnsupportedDNSProvider(t *testing.T) {
-	cfg := &config.Config{Kernel: config.KernelConfig{Type: "singbox"}}
+	cfg := &config.Config{Kernel: config.KernelConfig{Type: "mihomo"}}
 	err := validateNodeRuntime(cfg, []string{"http"}, &model.NodeSpec{
 		Protocol: "http",
 		CertConfig: &config.CertConfig{
@@ -271,7 +271,7 @@ func TestValidateNodeRuntimeRejectsUnsupportedDNSProvider(t *testing.T) {
 }
 
 func TestValidateNodeRuntimeAllowsSelfManagedTLSBeforeFilesExist(t *testing.T) {
-	cfg := &config.Config{Kernel: config.KernelConfig{Type: "singbox"}}
+	cfg := &config.Config{Kernel: config.KernelConfig{Type: "mihomo"}}
 	err := validateNodeRuntime(cfg, []string{"anytls", "hysteria"}, &model.NodeSpec{
 		Protocol: "anytls",
 		CertConfig: &config.CertConfig{
@@ -285,7 +285,7 @@ func TestValidateNodeRuntimeAllowsSelfManagedTLSBeforeFilesExist(t *testing.T) {
 }
 
 func TestValidateNodeRuntimeAllowsSingboxRealityWithRequiredFields(t *testing.T) {
-	cfg := &config.Config{Kernel: config.KernelConfig{Type: "singbox"}}
+	cfg := &config.Config{Kernel: config.KernelConfig{Type: "mihomo"}}
 	err := validateNodeRuntime(cfg, []string{"vless"}, &model.NodeSpec{
 		Protocol: "vless",
 		TLS:      2,
@@ -300,7 +300,7 @@ func TestValidateNodeRuntimeAllowsSingboxRealityWithRequiredFields(t *testing.T)
 }
 
 func TestValidateNodeRuntimeRejectsRealityWithoutTLSSettings(t *testing.T) {
-	cfg := &config.Config{Kernel: config.KernelConfig{Type: "singbox"}}
+	cfg := &config.Config{Kernel: config.KernelConfig{Type: "mihomo"}}
 	err := validateNodeRuntime(cfg, []string{"vless"}, &model.NodeSpec{
 		Protocol: "vless",
 		TLS:      2,
@@ -314,7 +314,7 @@ func TestValidateNodeRuntimeRejectsRealityWithoutTLSSettings(t *testing.T) {
 }
 
 func TestValidateNodeRuntimeRejectsRealityWithoutPrivateKey(t *testing.T) {
-	cfg := &config.Config{Kernel: config.KernelConfig{Type: "singbox"}}
+	cfg := &config.Config{Kernel: config.KernelConfig{Type: "mihomo"}}
 	err := validateNodeRuntime(cfg, []string{"vless"}, &model.NodeSpec{
 		Protocol: "vless",
 		TLS:      2,
@@ -331,7 +331,7 @@ func TestValidateNodeRuntimeRejectsRealityWithoutPrivateKey(t *testing.T) {
 }
 
 func TestValidateNodeRuntimeRejectsRealityWithoutServerNameOrDest(t *testing.T) {
-	cfg := &config.Config{Kernel: config.KernelConfig{Type: "singbox"}}
+	cfg := &config.Config{Kernel: config.KernelConfig{Type: "mihomo"}}
 	err := validateNodeRuntime(cfg, []string{"vless"}, &model.NodeSpec{
 		Protocol: "vless",
 		TLS:      2,

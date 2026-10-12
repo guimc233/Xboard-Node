@@ -22,8 +22,6 @@ import (
 	"github.com/cedar2025/xboard-node/internal/controlplane"
 	"github.com/cedar2025/xboard-node/internal/kernel"
 	"github.com/cedar2025/xboard-node/internal/kernel/mihomo"
-	"github.com/cedar2025/xboard-node/internal/kernel/singbox"
-	"github.com/cedar2025/xboard-node/internal/kernel/xray"
 	"github.com/cedar2025/xboard-node/internal/limiter"
 	"github.com/cedar2025/xboard-node/internal/model"
 	"github.com/cedar2025/xboard-node/internal/monitor"
@@ -146,18 +144,11 @@ func NewWithControlPlane(cfg *config.Config, cp controlplane.ControlPlane) *Serv
 func newService(cfg *config.Config, cp controlplane.ControlPlane) *Service {
 	certMgr := cert.NewManager(cfg.Cert)
 
-	var k kernel.Kernel
-	switch cfg.Kernel.Type {
-	case "mihomo":
-		k = mihomo.New(cfg.Kernel)
-	case "singbox":
-		k = singbox.New(cfg.Kernel)
-	case "xray":
-		k = xray.New(cfg.Kernel)
-	default:
-		nlog.Core().Warn("unsupported kernel type, defaulting to mihomo", "type", cfg.Kernel.Type)
-		k = mihomo.New(cfg.Kernel)
+	// mihomo is the only kernel: sing-box and Xray are retired.
+	if cfg.Kernel.Type != "mihomo" {
+		nlog.Core().Warn("unsupported kernel type, using mihomo", "type", cfg.Kernel.Type)
 	}
+	k := mihomo.New(cfg.Kernel)
 
 	l := limiter.New()
 	st := limiter.NewSpeedTracker(l)

@@ -25,7 +25,7 @@ panel:
   node_id: 5
   node_type: "v2ray"
 kernel:
-  type: singbox
+  type: mihomo
   log_level: warn
 log:
   level: debug
@@ -46,7 +46,7 @@ log:
 	if cfg.Panel.NodeType != "v2ray" {
 		t.Errorf("node_type: got %q", cfg.Panel.NodeType)
 	}
-	if cfg.Kernel.Type != "singbox" {
+	if cfg.Kernel.Type != "mihomo" {
 		t.Errorf("kernel.type: got %q", cfg.Kernel.Type)
 	}
 	if cfg.Log.Level != "debug" {
@@ -156,21 +156,21 @@ kernel:
 	}
 }
 
-func TestLoad_XrayKernel(t *testing.T) {
+func TestLoad_MihomoKernel(t *testing.T) {
 	path := writeTemp(t, `
 panel:
   url: "https://example.com"
   token: "tok"
   node_id: 1
 kernel:
-  type: xray
+  type: mihomo
 `)
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Kernel.Type != "xray" {
-		t.Errorf("kernel.type: got %q, want xray", cfg.Kernel.Type)
+	if cfg.Kernel.Type != "mihomo" {
+		t.Errorf("kernel.type: got %q, want mihomo", cfg.Kernel.Type)
 	}
 }
 
@@ -286,7 +286,7 @@ standalone:
     - id: 1
       uuid: "11111111-1111-1111-1111-111111111111"
 kernel:
-  type: xray
+  type: mihomo
 cert:
   cert_mode: none
 `)
@@ -319,14 +319,13 @@ standalone:
     protocol: "trojan"
     server_port: 443
 kernel:
-  type: singbox
+  type: mihomo
 `)
 	_, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for standalone mode without users")
 	}
 }
-
 
 func TestLoadRoot_LegacyConfigNormalizesToSingleInstance(t *testing.T) {
 	path := writeTemp(t, `
@@ -362,14 +361,14 @@ instances:
       token_env: "PANEL_A_TOKEN"
       node_id: 1
     kernel:
-      type: singbox
+      type: mihomo
   - panel:
       url: "https://panel-b.example.com"
     machine:
       machine_id: 2
       token_env: "PANEL_B_MACHINE_TOKEN"
     kernel:
-      type: singbox
+      type: mihomo
 `)
 	t.Setenv("PANEL_A_TOKEN", "token-a")
 	t.Setenv("PANEL_B_MACHINE_TOKEN", "token-b")
@@ -417,7 +416,7 @@ log:
   level: "debug"
   output: "stderr"
 kernel:
-  type: xray
+  type: mihomo
   log_level: "error"
 node:
   push_interval: 42
@@ -449,8 +448,8 @@ instances:
 	if inst0.Log.Output != "stderr" {
 		t.Errorf("inst0 log.output: got %q, want %q", inst0.Log.Output, "stderr")
 	}
-	if inst0.Kernel.Type != "xray" {
-		t.Errorf("inst0 kernel.type: got %q, want %q", inst0.Kernel.Type, "xray")
+	if inst0.Kernel.Type != "mihomo" {
+		t.Errorf("inst0 kernel.type: got %q, want %q", inst0.Kernel.Type, "mihomo")
 	}
 	if inst0.Kernel.LogLevel != "error" {
 		t.Errorf("inst0 kernel.log_level: got %q, want %q", inst0.Kernel.LogLevel, "error")
@@ -469,8 +468,8 @@ instances:
 	if inst1.Log.Output != "stderr" {
 		t.Errorf("inst1 log.output: got %q, want %q", inst1.Log.Output, "stderr")
 	}
-	if inst1.Kernel.Type != "xray" {
-		t.Errorf("inst1 kernel.type: got %q, want %q", inst1.Kernel.Type, "xray")
+	if inst1.Kernel.Type != "mihomo" {
+		t.Errorf("inst1 kernel.type: got %q, want %q", inst1.Kernel.Type, "mihomo")
 	}
 }
 

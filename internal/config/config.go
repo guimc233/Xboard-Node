@@ -725,7 +725,7 @@ func (c *Config) validate() error {
 		}
 	}
 	switch c.Kernel.Type {
-	case "mihomo", "singbox", "xray":
+	case "mihomo":
 	default:
 		return fmt.Errorf("kernel.type must be 'mihomo', got '%s'", c.Kernel.Type)
 	}

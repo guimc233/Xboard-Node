@@ -42,6 +42,20 @@ One node, one mihomo process, one external-controller port.
 The panel's block is already kernel-native, so the generator copies it and only
 adds the parts that depend on live user state.
 
+## Local overrides
+
+Operators can extend or replace anything the panel does not model:
+
+- `kernel.custom_config` — the path to a mihomo document (YAML or JSON) that is
+  deep-merged **last**, so it wins. `rules` are prepended (a local rule takes
+  precedence) and `proxies` / `listeners` are appended; maps merge recursively.
+  Use it for `dns`, `proxy-groups`, `tun`, `hosts`, `sniffer` additions, etc.
+- `kernel.custom_outbound` — raw proxy entries appended to `proxies`, so rules
+  can target them by name.
+- `kernel.custom_route` — a sing-box/Xray-era field. mihomo rules are compiled
+  from the panel, so this is **ignored** and the agent logs a warning. Put rules
+  in `kernel.custom_config` instead.
+
 ## External-controller contract
 
 Authentication is `Authorization: Bearer <secret>`.

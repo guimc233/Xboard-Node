@@ -73,10 +73,8 @@ type RouteProfile struct {
 }
 
 type RuleSet struct {
-	Tag     string
-	Mihomo  *MihomoRuleSet
-	Singbox *SingboxRuleSet
-	Xray    *XrayRuleSet
+	Tag    string
+	Mihomo *MihomoRuleSet
 }
 
 // MihomoRuleSet is one mihomo `rule-providers` entry.
@@ -109,22 +107,6 @@ const (
 	MihomoUsersArrayUUID         = "array_uuid"
 	MihomoUsersArrayPassword     = "array_password"
 )
-
-type SingboxRuleSet struct {
-	Type           string
-	Format         string
-	URL            string
-	Path           string
-	DownloadDetour string
-	UpdateInterval string
-}
-
-type XrayRuleSet struct {
-	Type     string
-	Tag      string
-	URL      string
-	FileName string
-}
 
 type RouteRule struct {
 	ID          int

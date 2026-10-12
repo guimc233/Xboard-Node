@@ -53,12 +53,18 @@
 
 ## Kernel Compatibility
 
-| Feature | Xray | Sing-box |
-|---------|------|----------|
-| All match conditions | ✅ | ✅ |
-| direct / block / route | ✅ | ✅ |
+Every match condition and every action (`direct`, `block`, `route`) is supported
+on mihomo.
+
+`custom_route_rules` are compiled into mihomo rules with the outbound tag as the
+target, so the tag must resolve to a proxy (`custom_outbounds`) or a built-in
+(`direct`, `block`).
+
+> **Note**: the raw `custom_routes` escape hatch is a sing-box/Xray-era field and
+> is **not** translated for mihomo. For rules the panel does not model, use
+> `custom_config` with a mihomo `rules:` list instead.
 
 ## Best Practices
 
-- **Prefer** `custom_route_rules`: cross-kernel compatible, panel-managed
-- **Use** `custom_routes` only: when native features are needed (e.g., load balancing)
+- **Prefer** `custom_route_rules`: panel-managed and validated
+- **Use** `custom_config` only: when a mihomo-native feature is needed (e.g. `proxy-groups` with `url-test`)

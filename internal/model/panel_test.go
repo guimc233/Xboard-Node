@@ -16,7 +16,7 @@ func TestNodeSpecFromPanelValidated(t *testing.T) {
 				Tag: "awssg", Protocol: "shadowsocks",
 				Settings: map[string]any{"address": "13.228.73.171", "port": 8388, "method": "chacha20-ietf-poly1305", "password": "secret"},
 			}},
-		}, config.KernelConfig{Type: "singbox"})
+		}, config.KernelConfig{Type: "mihomo"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -29,14 +29,15 @@ func TestNodeSpecFromPanelValidated(t *testing.T) {
 		}
 	})
 
-	t.Run("accept normalized templates and Reality route profiles", func(t *testing.T) {
+	t.Run("accept normalized templates and route profiles", func(t *testing.T) {
 		node, err := NodeSpecFromPanelValidated(&panel.NodeConfig{
 			Protocol: "vless", TLS: 2, ServerPort: 443, ConfigVersion: 7,
+			Mihomo: &panel.MihomoConfig{UsersShape: MihomoUsersArrayUUID},
 			OutboundTemplates: []panel.OutboundConfig{{
 				Tag: "proxy", Protocol: "socks5", Settings: map[string]any{"server": "2.2.2.2", "server_port": 1080},
 			}},
 			RouteProfiles: []panel.RouteProfile{{ID: "profile-1", Name: "Proxy", OutboundTag: "proxy"}},
-		}, config.KernelConfig{Type: "xray"})
+		}, config.KernelConfig{Type: "mihomo"})
 		if err != nil {
 			t.Fatalf("NodeSpecFromPanelValidated: %v", err)
 		}
@@ -45,18 +46,22 @@ func TestNodeSpecFromPanelValidated(t *testing.T) {
 		}
 	})
 
-	t.Run("reject VLESS profiles without Reality", func(t *testing.T) {
+	t.Run("accept VLESS route profiles with a user list", func(t *testing.T) {
 		_, err := NodeSpecFromPanelValidated(&panel.NodeConfig{
 			Protocol: "vless", TLS: 1, ServerPort: 443,
+			Mihomo:        &panel.MihomoConfig{UsersShape: MihomoUsersArrayUUID},
 			RouteProfiles: []panel.RouteProfile{{ID: "profile-1", OutboundTag: "direct"}},
-		}, config.KernelConfig{Type: "xray"})
-		if err == nil || !strings.Contains(err.Error(), "VLESS route profiles require a Reality inbound") {
+		}, config.KernelConfig{Type: "mihomo"})
+		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
 
-	t.Run("accept Shadowsocks route profiles", func(t *testing.T) {
-		node, err := NodeSpecFromPanelValidated(&panel.NodeConfig{
+	t.Run("accept route profiles on a single-credential inbound", func(t *testing.T) {
+		// mihomo's shadowsocks inbound has one shared password and therefore no
+		// users list. That is not fatal: the generator logs the profiles it
+		// cannot dispatch instead of taking the node down.
+		_, err := NodeSpecFromPanelValidated(&panel.NodeConfig{
 			Protocol: "shadowsocks", ServerPort: 8388,
 			OutboundTemplates: []panel.OutboundConfig{{
 				Tag: "hinet", Protocol: "vless", Settings: map[string]any{
@@ -65,12 +70,9 @@ func TestNodeSpecFromPanelValidated(t *testing.T) {
 				},
 			}},
 			RouteProfiles: []panel.RouteProfile{{ID: "profile-hinet", Name: "HiNet", OutboundTag: "hinet"}},
-		}, config.KernelConfig{Type: "singbox"})
+		}, config.KernelConfig{Type: "mihomo"})
 		if err != nil {
-			t.Fatalf("NodeSpecFromPanelValidated: %v", err)
-		}
-		if len(node.RouteProfiles) != 1 || node.RouteProfiles[0].OutboundTag != "hinet" {
-			t.Fatalf("unexpected route profiles: %#v", node.RouteProfiles)
+			t.Fatalf("unexpected error: %v", err)
 		}
 	})
 
@@ -86,7 +88,7 @@ func TestNodeSpecFromPanelValidated(t *testing.T) {
 				Action: panel.RouteAction{Type: "route", Target: "proxy"},
 				Match:  panel.RouteMatch{DomainSuffixes: []string{"example.com"}},
 			}},
-		}, config.KernelConfig{Type: "singbox"})
+		}, config.KernelConfig{Type: "mihomo"})
 		if err != nil {
 			t.Fatalf("NodeSpecFromPanelValidated: %v", err)
 		}
@@ -102,7 +104,7 @@ func TestNodeSpecFromPanelValidated(t *testing.T) {
 			CustomOutbounds: []panel.OutboundConfig{{
 				Tag: "proxy", Protocol: "socks", ProxyTag: "missing", Settings: map[string]any{"server": "2.2.2.2", "server_port": 1080},
 			}},
-		}, config.KernelConfig{Type: "singbox"})
+		}, config.KernelConfig{Type: "mihomo"})
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -116,13 +118,13 @@ func TestNodeSpecFromPanelValidated(t *testing.T) {
 			Protocol:   "shadowsocks",
 			ServerPort: 8388,
 			CustomOutbounds: []panel.OutboundConfig{{
-				Tag: "hy2", Protocol: "hysteria2", Settings: map[string]any{"server": "2.2.2.2", "server_port": 8443},
+				Tag: "ovpn", Protocol: "openvpn", Settings: map[string]any{"server": "2.2.2.2", "server_port": 1194},
 			}},
-		}, config.KernelConfig{Type: "xray"})
+		}, config.KernelConfig{Type: "mihomo"})
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), `protocol "hysteria2" is not supported by kernel "xray"`) {
+		if !strings.Contains(err.Error(), `protocol "openvpn" is not supported by kernel "mihomo"`) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -138,7 +140,7 @@ func TestNodeSpecFromPanelValidated(t *testing.T) {
 				Action: panel.RouteAction{Type: "route", Target: "missing"},
 				Match:  panel.RouteMatch{DomainSuffixes: []string{"example.com"}},
 			}},
-		}, config.KernelConfig{Type: "singbox"})
+		}, config.KernelConfig{Type: "mihomo"})
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}

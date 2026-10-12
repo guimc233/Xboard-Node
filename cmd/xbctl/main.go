@@ -222,8 +222,8 @@ func printUsage() {
   xbctl config health-port [--config PATH]
   xbctl service status|start|stop|restart|enable|disable|logs
   xbctl health
-  xbctl bind add-node --panel-url URL --token TOKEN --node-id ID [--node-type TYPE] [--kernel singbox|xray]
-  xbctl bind add-machine --panel-url URL --token TOKEN --machine-id ID [--kernel singbox|xray]
+  xbctl bind add-node --panel-url URL --token TOKEN --node-id ID [--node-type TYPE] [--kernel mihomo]
+  xbctl bind add-machine --panel-url URL --token TOKEN --machine-id ID [--kernel mihomo]
   xbctl bind remove <instance-id>
   xbctl bind remove-node --panel URL --node-id ID
   xbctl bind remove-machine --panel URL --machine-id ID
@@ -1446,7 +1446,11 @@ func runConfigInit(args []string) error {
 		return errors.New("--machine-id is required for machine mode")
 	}
 
-	// Build the new instance.
+	// Build the new instance. mihomo is the only kernel, so an omitted
+	// --kernel is written out explicitly rather than left empty.
+	if kernelType == "" {
+		kernelType = "mihomo"
+	}
 	inst := config.Config{
 		Panel: config.PanelConfig{URL: panelURL},
 		Kernel: config.KernelConfig{

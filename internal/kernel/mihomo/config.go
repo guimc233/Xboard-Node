@@ -15,6 +15,7 @@ import (
 	"github.com/cedar2025/xboard-node/internal/config"
 	"github.com/cedar2025/xboard-node/internal/kernel"
 	"github.com/cedar2025/xboard-node/internal/model"
+	"github.com/cedar2025/xboard-node/internal/nlog"
 )
 
 // Options control the runtime-facing parts of the generated document.
@@ -27,6 +28,13 @@ type Options struct {
 	Secret string
 	// LogLevel is the mihomo log level (silent, error, warning, info, debug).
 	LogLevel string
+	// CustomConfig is a locally supplied mihomo document (kernel.custom_config)
+	// deep-merged over the generated one, so an operator can override or extend
+	// anything the panel does not model.
+	CustomConfig map[string]any
+	// ExtraProxies are locally supplied proxy entries (kernel.custom_outbound)
+	// appended to the generated proxies.
+	ExtraProxies []map[string]any
 }
 
 // BuildConfig renders the complete mihomo configuration document for a node.
@@ -54,6 +62,10 @@ func BuildConfig(spec *model.NodeSpec, users []model.UserSpec, tls kernel.TLSCer
 	if proxies := buildProxies(spec); len(proxies) > 0 {
 		doc["proxies"] = proxies
 	}
+	if len(opts.ExtraProxies) > 0 {
+		existing, _ := doc["proxies"].([]map[string]any)
+		doc["proxies"] = append(existing, opts.ExtraProxies...)
+	}
 
 	rules := buildRules(spec, users)
 	if len(rules) > 0 {
@@ -69,6 +81,11 @@ func BuildConfig(spec *model.NodeSpec, users []model.UserSpec, tls kernel.TLSCer
 		if len(spec.Mihomo.Sniffer) > 0 {
 			doc["sniffer"] = spec.Mihomo.Sniffer
 		}
+	}
+
+	// The local override is applied last so it can replace anything.
+	if len(opts.CustomConfig) > 0 {
+		doc = MergeCustomConfig(doc, opts.CustomConfig)
 	}
 
 	return doc, nil
@@ -227,6 +244,15 @@ func shapeUsers(shape string, entries []userEntry) any {
 // this kernel.
 func buildRules(spec *model.NodeSpec, users []model.UserSpec) []string {
 	var rules []string
+
+	// mihomo expresses a route profile with an IN-USER rule, which needs a
+	// per-user credential list. A single-credential inbound (shadowsocks,
+	// snell) has no users_shape, so its profiles cannot be dispatched; report
+	// that instead of failing the whole node.
+	if len(spec.RouteProfiles) > 0 && strings.TrimSpace(spec.UsersShape) == "" {
+		nlog.Core().Warn("route profiles are ignored: this inbound authenticates with a single credential",
+			"protocol", spec.Protocol, "profiles", len(spec.RouteProfiles))
+	}
 
 	profilesByUser := routeProfileTargets(spec, users)
 	if len(profilesByUser) > 0 {

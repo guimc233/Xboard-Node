@@ -9,7 +9,13 @@
 
 # ── Multiple instances ──
 # kernel:
-#   type: "singbox"
+#   # mihomo is the only kernel (sing-box and Xray are retired).
+#   type: "mihomo"
+#   # Optional: path to the mihomo executable. Defaults to `mihomo` on PATH.
+#   # binary_path: "/usr/local/bin/mihomo"
+#   # Optional: a local mihomo document deep-merged over the generated config,
+#   # for anything the panel does not model (dns, tun, proxy-groups, ...).
+#   # custom_config: "/etc/xboard-node/mihomo-override.yaml"
 # log:
 #   level: "info"
 # instances:

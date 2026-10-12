@@ -25,20 +25,29 @@
 
 ## Supported Protocols
 
-| Protocol | Xray | Sing-box |
-|----------|------|----------|
-| vmess | ✅ | ✅ |
-| vless | ✅ | ✅ |
-| trojan | ✅ | ✅ |
-| shadowsocks | ✅ | ✅ |
-| socks | ✅ | ✅ |
-| http | ✅ | ✅ |
-| wireguard | ✅ | ✅ |
-| tuic | ❌ | ✅ |
-| hysteria2 | ❌ | ✅ |
-| anytls | ❌ | ✅ |
-| naive | ❌ | ✅ |
-| mieru | ❌ | ✅ |
+The panel validates `protocol` against the mihomo type it maps to. Anything not
+in this list is rejected before the node starts.
+
+| Panel protocol | mihomo type | Notes |
+|----------------|-------------|-------|
+| `shadowsocks` | `ss` | `cipher` (or `method`) + `password` |
+| `ssr` | `ssr` | |
+| `socks` / `socks5` | `socks5` | optional `username` / `password` |
+| `http` | `http` | optional `username` / `password` |
+| `vmess` | `vmess` | `uuid`, optional `alterId` |
+| `vless` | `vless` | `uuid`, optional `flow` |
+| `trojan` | `trojan` | `password` |
+| `snell` | `snell` | |
+| `hysteria` | `hysteria` | |
+| `hysteria2` | `hysteria2` | |
+| `tuic` | `tuic` | |
+| `anytls` | `anytls` | |
+| `mieru` | `mieru` | |
+| `sudoku` | `sudoku` | |
+| `shadowquic` | `shadowquic` | |
+| `trusttunnel` | `trusttunnel` | |
+| `wireguard` | `wireguard` | |
+| `ssh` | `ssh` | |
 
 ## Core Fields
 

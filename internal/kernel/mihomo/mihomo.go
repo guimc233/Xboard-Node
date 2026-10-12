@@ -17,6 +17,7 @@ import (
 	"github.com/cedar2025/xboard-node/internal/config"
 	"github.com/cedar2025/xboard-node/internal/kernel"
 	"github.com/cedar2025/xboard-node/internal/model"
+	"github.com/cedar2025/xboard-node/internal/nlog"
 )
 
 // pollInterval is how often the live connection table is sampled. mihomo has no
@@ -46,6 +47,10 @@ type Mihomo struct {
 	spec       *model.NodeSpec
 	users      []model.UserSpec
 	tls        kernel.TLSCert
+
+	// Local overrides from kernel.custom_config / kernel.custom_outbound.
+	customConfig map[string]any
+	extraProxies []map[string]any
 
 	speedLimitFunc  func(string) *rate.Limiter
 	deviceLimitFunc func(string) (int, bool)
@@ -130,6 +135,14 @@ func (m *Mihomo) Start(nc *model.NodeSpec, users []model.UserSpec, tls kernel.TL
 		return err
 	}
 
+	customConfig, err := kernel.LoadCustomConfig(m.cfg.CustomConfig)
+	if err != nil {
+		return err
+	}
+	if len(m.cfg.CustomRoute) > 0 {
+		nlog.Core().Warn("kernel.custom_route is ignored by the mihomo backend; put rules in kernel.custom_config instead")
+	}
+
 	process := NewProcess(binary, homeDir, filepath.Join(homeDir, "config.yaml"), filepath.Join(homeDir, "mihomo.log"))
 	client := NewClient(controller, secret)
 
@@ -138,6 +151,8 @@ func (m *Mihomo) Start(nc *model.NodeSpec, users []model.UserSpec, tls kernel.TL
 		ExternalController: controller,
 		Secret:             secret,
 		LogLevel:           m.cfg.LogLevel,
+		CustomConfig:       customConfig,
+		ExtraProxies:       m.cfg.CustomOutbound,
 	})
 	if err != nil {
 		return err
@@ -176,6 +191,8 @@ func (m *Mihomo) Start(nc *model.NodeSpec, users []model.UserSpec, tls kernel.TL
 	m.spec = nc
 	m.tls = tls
 	m.users = cloneUsers(users)
+	m.customConfig = customConfig
+	m.extraProxies = m.cfg.CustomOutbound
 	m.mu.Unlock()
 
 	m.resetAccounting(users)
@@ -225,11 +242,18 @@ func (m *Mihomo) Reload(nc *model.NodeSpec, users []model.UserSpec, tls kernel.T
 		return errors.New("mihomo: reload requested but the process is not running")
 	}
 
+	m.mu.RLock()
+	customConfig := m.customConfig
+	extraProxies := m.extraProxies
+	m.mu.RUnlock()
+
 	doc, err := BuildConfig(nc, users, tls, Options{
 		Kernel:             m.cfg,
 		ExternalController: controller,
 		Secret:             secret,
 		LogLevel:           m.cfg.LogLevel,
+		CustomConfig:       customConfig,
+		ExtraProxies:       extraProxies,
 	})
 	if err != nil {
 		return err
@@ -332,11 +356,18 @@ func (m *Mihomo) applyUsers(users []model.UserSpec) error {
 		return errors.New("mihomo: cannot update users before the kernel is started")
 	}
 
+	m.mu.RLock()
+	customConfig := m.customConfig
+	extraProxies := m.extraProxies
+	m.mu.RUnlock()
+
 	doc, err := BuildConfig(spec, users, tls, Options{
 		Kernel:             m.cfg,
 		ExternalController: controller,
 		Secret:             secret,
 		LogLevel:           m.cfg.LogLevel,
+		CustomConfig:       customConfig,
+		ExtraProxies:       extraProxies,
 	})
 	if err != nil {
 		return err

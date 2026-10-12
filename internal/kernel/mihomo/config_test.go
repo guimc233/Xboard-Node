@@ -242,3 +242,37 @@ func TestBuildConfigRejectsMissingListeners(t *testing.T) {
 		t.Fatal("expected an error when the panel payload has no mihomo listeners")
 	}
 }
+
+func TestBuildConfigMergesLocalOverride(t *testing.T) {
+	opts := Options{
+		ExtraProxies: []map[string]any{{"name": "local-warp", "type": "socks5", "server": "127.0.0.1", "port": 1081}},
+		CustomConfig: map[string]any{
+			// A local rule must win over the generated policy.
+			"rules": []string{"DOMAIN-SUFFIX,internal.example,DIRECT"},
+			// Maps merge recursively.
+			"profile": map[string]any{"store-selected": true},
+			// Scalars are replaced.
+			"log-level": "debug",
+		},
+	}
+	doc, err := BuildConfig(testSpec(model.MihomoUsersMap), testUsers(), kernel.TLSCert{}, opts)
+	if err != nil {
+		t.Fatalf("BuildConfig: %v", err)
+	}
+
+	rules := doc["rules"].([]string)
+	if rules[0] != "DOMAIN-SUFFIX,internal.example,DIRECT" {
+		t.Errorf("local rules must be prepended, got %#v", rules)
+	}
+	if doc["log-level"] != "debug" {
+		t.Errorf("local scalars must win, got %#v", doc["log-level"])
+	}
+	profile, _ := doc["profile"].(map[string]any)
+	if profile["store-selected"] != true || profile["store-fake-ip"] != false {
+		t.Errorf("maps must merge recursively, got %#v", profile)
+	}
+	proxies, _ := doc["proxies"].([]map[string]any)
+	if len(proxies) != 2 || proxies[1]["name"] != "local-warp" {
+		t.Errorf("local proxies must be appended, got %#v", proxies)
+	}
+}

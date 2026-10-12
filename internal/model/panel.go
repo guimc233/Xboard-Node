@@ -146,20 +146,6 @@ func NodeSpecFromPanel(nc *panel.NodeConfig) *NodeSpec {
 				Payload: cloneStringSlice(ruleSet.Mihomo.Payload),
 			}
 		}
-		if ruleSet.Singbox != nil {
-			converted.Singbox = &SingboxRuleSet{
-				Type: ruleSet.Singbox.Type, Format: ruleSet.Singbox.Format,
-				URL: ruleSet.Singbox.URL, Path: ruleSet.Singbox.Path,
-				DownloadDetour: ruleSet.Singbox.DownloadDetour,
-				UpdateInterval: ruleSet.Singbox.UpdateInterval,
-			}
-		}
-		if ruleSet.Xray != nil {
-			converted.Xray = &XrayRuleSet{
-				Type: ruleSet.Xray.Type, Tag: ruleSet.Xray.Tag,
-				URL: ruleSet.Xray.URL, FileName: ruleSet.Xray.FileName,
-			}
-		}
 		ruleSets = append(ruleSets, converted)
 	}
 
@@ -352,20 +338,6 @@ func (n *NodeSpec) ToPanel() *panel.NodeConfig {
 				Proxy: ruleSet.Mihomo.Proxy, SizeLimit: ruleSet.Mihomo.SizeLimit,
 				Header:  cloneStringSliceMap(ruleSet.Mihomo.Header),
 				Payload: cloneStringSlice(ruleSet.Mihomo.Payload),
-			}
-		}
-		if ruleSet.Singbox != nil {
-			converted.Singbox = &panel.SingboxRuleSet{
-				Type: ruleSet.Singbox.Type, Format: ruleSet.Singbox.Format,
-				URL: ruleSet.Singbox.URL, Path: ruleSet.Singbox.Path,
-				DownloadDetour: ruleSet.Singbox.DownloadDetour,
-				UpdateInterval: ruleSet.Singbox.UpdateInterval,
-			}
-		}
-		if ruleSet.Xray != nil {
-			converted.Xray = &panel.XrayRuleSet{
-				Type: ruleSet.Xray.Type, Tag: ruleSet.Xray.Tag,
-				URL: ruleSet.Xray.URL, FileName: ruleSet.Xray.FileName,
 			}
 		}
 		ruleSets = append(ruleSets, converted)

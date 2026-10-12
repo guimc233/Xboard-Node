@@ -1,14 +1,14 @@
 # xboard-node
 
-Self-hosted node backend for [Xboard](https://github.com/MiaM1ku/Xboard). Supports `sing-box` / `xray-core` dual kernels.
+Self-hosted node backend for [Xboard](https://github.com/guimc233/Xboard). Uses the [`mihomo`](https://github.com/MetaCubeX/mihomo) (Clash.Meta) kernel.
 
 > **Disclaimer**: This project is for educational and learning purposes only.
 
 ## Features
 
-- Protocols: V2Ray family, Trojan, Shadowsocks, Hysteria2, TUIC, AnyTLS
+- Protocol inbounds: VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC, AnyTLS, Snell, Mieru, Sudoku, ShadowQUIC, TrustTunnel, SOCKS, HTTP, mixed
 - Sync: WebSocket push + REST polling dual channel
-- User controls: speed limit, device limit, alive-IP tracking, hot update
+- User controls: alive-IP tracking, per-user traffic accounting, force-disconnect
 - Deploy modes: node mode, machine mode, standalone mode
 - Multi-instance: single process binding multiple panels / nodes
 
@@ -19,13 +19,13 @@ Self-hosted node backend for [Xboard](https://github.com/MiaM1ku/Xboard). Suppor
 ```bash
 docker run -d --restart=always --network=host \
   -e apiHost=https://panel.com -e apiKey=TOKEN -e nodeID=1 \
-  ghcr.io/miam1ku/xboard-node:dev
+  ghcr.io/guimc233/xboard-node:dev
 ```
 
 ### Docker Compose
 
 ```bash
-git clone -b dev --depth 1 https://github.com/MiaM1ku/Xboard-Node.git
+git clone -b dev --depth 1 https://github.com/guimc233/Xboard-Node.git
 cd xboard-node
 vim config/config.yml   # set panel.url / token / node_id
 docker compose up -d
@@ -35,15 +35,15 @@ docker compose up -d
 
 ```bash
 # Node mode
-curl -fsSL https://raw.githubusercontent.com/MiaM1ku/Xboard-Node/dev/install.sh | \
+curl -fsSL https://raw.githubusercontent.com/guimc233/Xboard-Node/dev/install.sh | \
   sudo bash -s -- --mode node --panel https://panel.example.com --token TOKEN --node-id 1
 
 # Machine mode
-curl -fsSL https://raw.githubusercontent.com/MiaM1ku/Xboard-Node/dev/install.sh | \
+curl -fsSL https://raw.githubusercontent.com/guimc233/Xboard-Node/dev/install.sh | \
   sudo bash -s -- --mode machine --panel https://panel.example.com --token TOKEN --machine-id 1
 
 # Alpine root shell (sudo is normally not installed)
-curl -fsSL https://raw.githubusercontent.com/MiaM1ku/Xboard-Node/dev/install.sh | \
+curl -fsSL https://raw.githubusercontent.com/guimc233/Xboard-Node/dev/install.sh | \
   bash -s -- --mode machine --panel https://panel.example.com --token TOKEN --machine-id 1
 ```
 

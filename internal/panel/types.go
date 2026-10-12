@@ -253,9 +253,6 @@ type RuleSet struct {
 	Tag    string         `json:"tag"`
 	Mihomo *MihomoRuleSet `json:"mihomo,omitempty"`
 	Legacy map[string]any `json:"legacy,omitempty"`
-	// Deprecated: sing-box and Xray rule sets are no longer generated.
-	Singbox *SingboxRuleSet `json:"singbox,omitempty"`
-	Xray    *XrayRuleSet    `json:"xray,omitempty"`
 }
 
 // MihomoRuleSet is a single mihomo `rule-providers` entry.
@@ -284,22 +281,6 @@ type MihomoConfig struct {
 	// map | array_user_password | array_uuid | array_password | "" (single
 	// credential inbounds).
 	UsersShape string `json:"users_shape,omitempty"`
-}
-
-type SingboxRuleSet struct {
-	Type           string `json:"type,omitempty"`
-	Format         string `json:"format,omitempty"`
-	URL            string `json:"url,omitempty"`
-	Path           string `json:"path,omitempty"`
-	DownloadDetour string `json:"download_detour,omitempty"`
-	UpdateInterval string `json:"update_interval,omitempty"`
-}
-
-type XrayRuleSet struct {
-	Type     string `json:"type"`
-	Tag      string `json:"tag"`
-	URL      string `json:"url,omitempty"`
-	FileName string `json:"file_name,omitempty"`
 }
 
 type BaseConfig struct {

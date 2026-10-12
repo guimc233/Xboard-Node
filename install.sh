@@ -25,7 +25,12 @@ CLI_PATH="/usr/local/bin/xbctl"
 INSTALLER_COPY_PATH="${INSTALL_ROOT}/install.sh"
 CLI_BINARY_SOURCE=""
 DEFAULT_HEALTH_PORT=65530
-DEFAULT_KERNEL="singbox"
+DEFAULT_KERNEL="mihomo"
+MIHOMO_REPO="${MIHOMO_REPO:-MetaCubeX/mihomo}"
+MIHOMO_VERSION="${MIHOMO_VERSION:-latest}"
+MIHOMO_BINARY_SOURCE=""
+MIHOMO_SKIP=0
+MIHOMO_INSTALL_PATH="${MIHOMO_INSTALL_PATH:-/usr/local/bin/mihomo}"
 DEFAULT_MODE="node"
 DEFAULT_ACTION="install"
 DEFAULT_RELEASE_VERSION="dev"
@@ -192,10 +197,13 @@ usage() {
 
   OPTIONAL:
     --node-type, -T     Explicit node type for node mode
-    --kernel, -k        singbox or xray (default: singbox)
+    --kernel, -k        proxy kernel (only mihomo)
     --version           Release version, dev or latest (default: dev)
     --repository        GitHub repository used for releases (default: MiaM1ku/Xboard-Node)
     --download-base     Override the complete release download base URL
+    --mihomo-version    mihomo release tag to install (default: latest)
+    --mihomo-binary     Use a local mihomo binary instead of downloading it
+    --skip-mihomo       Do not install the mihomo kernel binary
     --binary            Use a local xboard-node binary path instead of downloading
     --xbctl-binary      Use a local xbctl binary path instead of downloading
     --health-port       Local health port (default: 65530, use 0 to disable)
@@ -267,6 +275,18 @@ parse_args() {
                 BINARY_SOURCE="$2"
                 shift 2
                 ;;
+            --mihomo-version)
+                MIHOMO_VERSION="$2"
+                shift 2
+                ;;
+            --mihomo-binary)
+                MIHOMO_BINARY_SOURCE="$2"
+                shift 2
+                ;;
+            --skip-mihomo)
+                MIHOMO_SKIP=1
+                shift 1
+                ;;
             --xbctl-binary)
                 CLI_BINARY_SOURCE="$2"
                 shift 2
@@ -311,8 +331,7 @@ parse_args() {
     fi
 
     case "$KERNEL_TYPE" in
-        singbox|SingBox|SINGBOX) KERNEL_TYPE="singbox" ;;
-        xray|Xray|XRAY) KERNEL_TYPE="xray" ;;
+        mihomo|Mihomo|MIHOMO|clash|clashmeta|ClashMeta|meta) KERNEL_TYPE="mihomo" ;;
         *) ;;
     esac
 
@@ -540,9 +559,9 @@ validate_install_request() {
         HEALTH_ENABLED=0
     fi
     case "$KERNEL_TYPE" in
-        singbox|xray) ;;
+        mihomo) ;;
         *)
-            log_error "Kernel must be singbox or xray"
+            log_error "Kernel must be mihomo (sing-box and Xray are retired)"
             exit 1
             ;;
     esac
@@ -658,12 +677,96 @@ stage_xbctl() {
     fi
 }
 
+# resolve_mihomo_tag prints the release tag to install, querying the GitHub API
+# when the caller asked for "latest" (mihomo asset names embed the tag).
+resolve_mihomo_tag() {
+    if [ "$MIHOMO_VERSION" != "latest" ]; then
+        echo "$MIHOMO_VERSION"
+        return 0
+    fi
+    local api="https://api.github.com/repos/${MIHOMO_REPO}/releases/latest"
+    local tag
+    tag=$(curl -fsSL "$api" 2>/dev/null | grep -m1 '"tag_name"' | sed -E 's/.*"tag_name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')
+    if [ -z "$tag" ]; then
+        return 1
+    fi
+    echo "$tag"
+}
+
+# mihomo_asset_name builds the release asset base name for this machine.
+# amd64 prefers the "-compatible" build, which only needs GOAMD64=v1.
+mihomo_asset_name() {
+    local tag="$1"
+    local suffix=""
+    if [ "$ARCH" = "amd64" ]; then
+        suffix="-compatible"
+    fi
+    echo "mihomo-linux-${ARCH}${suffix}-${tag}"
+}
+
+stage_mihomo() {
+    local staged="$TMP_DIR/mihomo"
+
+    if [ "$MIHOMO_SKIP" -eq 1 ]; then
+        log_warn "Skipping mihomo installation (--skip-mihomo)"
+        return 0
+    fi
+
+    if [ -n "$MIHOMO_BINARY_SOURCE" ]; then
+        if [ ! -f "$MIHOMO_BINARY_SOURCE" ]; then
+            log_error "mihomo binary source not found: $MIHOMO_BINARY_SOURCE"
+            exit 1
+        fi
+        log_step "Using local mihomo binary: ${MIHOMO_BINARY_SOURCE}"
+        cp "$MIHOMO_BINARY_SOURCE" "$staged"
+    elif [ -f "./mihomo" ]; then
+        log_step "Using local mihomo binary: ./mihomo"
+        cp "./mihomo" "$staged"
+    else
+        if ! command -v gunzip >/dev/null 2>&1; then
+            log_error "gunzip is required to unpack the mihomo release"
+            exit 1
+        fi
+        local tag
+        if ! tag=$(resolve_mihomo_tag); then
+            log_error "Failed to resolve the latest mihomo release tag"
+            exit 1
+        fi
+        local asset="$(mihomo_asset_name "$tag").gz"
+        local url="https://github.com/${MIHOMO_REPO}/releases/download/${tag}/${asset}"
+        log_step "Downloading mihomo ${tag}: ${url}"
+        if ! curl -fsSL "$url" -o "$TMP_DIR/mihomo.gz"; then
+            log_error "Failed to download mihomo from ${url}"
+            exit 1
+        fi
+        # gunzip writes "$TMP_DIR/mihomo", which is exactly $staged.
+        if ! gunzip -f "$TMP_DIR/mihomo.gz"; then
+            log_error "Failed to decompress the mihomo release"
+            exit 1
+        fi
+    fi
+
+    chmod +x "$staged"
+    if ! "$staged" -v >/dev/null 2>&1; then
+        log_error "Staged mihomo binary failed version check"
+        exit 1
+    fi
+}
+
+install_mihomo() {
+    if [ "$MIHOMO_SKIP" -eq 1 ]; then
+        return 0
+    fi
+    install -m 755 "$TMP_DIR/mihomo" "$MIHOMO_INSTALL_PATH"
+    log_info "mihomo installed: $("$MIHOMO_INSTALL_PATH" -v 2>/dev/null | head -n1)"
+}
+
 render_config() {
     local init_args=(
         config init
         --mode "$MODE"
         --panel-url "$PANEL_URL"
-        --kernel "${KERNEL_TYPE:-singbox}"
+        --kernel "${KERNEL_TYPE:-mihomo}"
         --health-port "${HEALTH_PORT:-0}"
         --token "$TOKEN"
         --version "$RELEASE_VERSION"
@@ -858,10 +961,12 @@ perform_install() {
     ensure_dirs
     stage_binary
     stage_xbctl
+    stage_mihomo
     render_config
     render_service
     backup_existing_state
     install_staged_files
+    install_mihomo
     start_service
 
     log_info "Installation succeeded"
@@ -886,10 +991,12 @@ perform_upgrade() {
     ensure_dirs
     stage_binary
     stage_xbctl
+    stage_mihomo
     render_service
     backup_existing_state
     install -m 755 "$TMP_DIR/xboard-node" "$BINARY_PATH"
     install -m 755 "$TMP_DIR/xbctl" "$CLI_PATH"
+    install_mihomo
     ln -sf "$CLI_PATH" /usr/bin/xbctl 2>/dev/null || true
     install -m "$SERVICE_FILE_MODE" "$TMP_DIR/service-file" "$SERVICE_PATH"
     service_daemon_reload
