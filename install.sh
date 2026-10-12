@@ -36,7 +36,7 @@ DEFAULT_ACTION="install"
 DEFAULT_RELEASE_VERSION="dev"
 DEFAULT_LOG_LEVEL="info"
 DEFAULT_KERNEL_LOG_LEVEL="warn"
-DEFAULT_REPOSITORY="${XBOARD_NODE_REPOSITORY:-MiaM1ku/Xboard-Node}"
+DEFAULT_REPOSITORY="${XBOARD_NODE_REPOSITORY:-guimc233/Xboard-Node}"
 DEFAULT_DOWNLOAD_BASE="${XBOARD_NODE_DOWNLOAD_BASE:-https://github.com/${DEFAULT_REPOSITORY}/releases}"
 
 ACTION="${DEFAULT_ACTION}"
@@ -199,7 +199,7 @@ usage() {
     --node-type, -T     Explicit node type for node mode
     --kernel, -k        proxy kernel (only mihomo)
     --version           Release version, dev or latest (default: dev)
-    --repository        GitHub repository used for releases (default: MiaM1ku/Xboard-Node)
+    --repository        GitHub repository used for releases (default: guimc233/Xboard-Node)
     --download-base     Override the complete release download base URL
     --mihomo-version    mihomo release tag to install (default: latest)
     --mihomo-binary     Use a local mihomo binary instead of downloading it

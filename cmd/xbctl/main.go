@@ -33,7 +33,7 @@ const (
 	openRCServicePath      = "/etc/init.d/xboard-node"
 	openRCLogPath          = "/var/log/xboard-node.log"
 	defaultInstallRoot     = "/etc/xboard-node"
-	defaultDownloadBase    = "https://github.com/MiaM1ku/Xboard-Node/releases"
+	defaultDownloadBase    = "https://github.com/guimc233/Xboard-Node/releases"
 )
 
 var (
