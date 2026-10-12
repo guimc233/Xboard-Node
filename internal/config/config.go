@@ -19,14 +19,14 @@ import (
 )
 
 type Config struct {
-	InstanceID string `yaml:"-"`
-	Panel   PanelConfig   `yaml:"panel"`
-	Node    NodeConfig    `yaml:"node"`
-	Kernel  KernelConfig  `yaml:"kernel"`
-	Cert    CertConfig    `yaml:"cert"`
-	Log     LogConfig     `yaml:"log"`
-	Runtime RuntimeConfig `yaml:"runtime"`
-	WS      WSConfig      `yaml:"ws"`
+	InstanceID string        `yaml:"-"`
+	Panel      PanelConfig   `yaml:"panel"`
+	Node       NodeConfig    `yaml:"node"`
+	Kernel     KernelConfig  `yaml:"kernel"`
+	Cert       CertConfig    `yaml:"cert"`
+	Log        LogConfig     `yaml:"log"`
+	Runtime    RuntimeConfig `yaml:"runtime"`
+	WS         WSConfig      `yaml:"ws"`
 	// Standalone enables a local-only node that never contacts the panel.
 	Standalone *StandaloneConfig `yaml:"standalone,omitempty"`
 	// HealthPort enables a lightweight HTTP health-check endpoint on the
@@ -118,9 +118,14 @@ type WSConfig struct {
 }
 
 type KernelConfig struct {
-	Type      string `yaml:"type"` // "singbox" or "xray"
+	Type      string `yaml:"type"` // "mihomo"
 	ConfigDir string `yaml:"config_dir"`
 	LogLevel  string `yaml:"log_level"`
+
+	// BinaryPath is the mihomo executable. Empty means "look up `mihomo` on
+	// PATH". The agent runs one mihomo process per node, so this is the
+	// program it spawns.
+	BinaryPath string `yaml:"binary_path,omitempty"`
 
 	// GeoDataDir is the directory that contains GeoIP/GeoSite database files.
 	// For sing-box: geoip.db and geosite.db (geoip2-format).
@@ -555,7 +560,7 @@ func (c *Config) inheritFrom(parent *Config) {
 
 func (c *Config) setDefaultsFrom(baseDir string) {
 	if c.Kernel.Type == "" {
-		c.Kernel.Type = "singbox"
+		c.Kernel.Type = "mihomo"
 	}
 	if c.Kernel.ConfigDir == "" {
 		c.Kernel.ConfigDir = baseDir
@@ -720,9 +725,9 @@ func (c *Config) validate() error {
 		}
 	}
 	switch c.Kernel.Type {
-	case "singbox", "xray":
+	case "mihomo", "singbox", "xray":
 	default:
-		return fmt.Errorf("kernel.type must be 'singbox' or 'xray', got '%s'", c.Kernel.Type)
+		return fmt.Errorf("kernel.type must be 'mihomo', got '%s'", c.Kernel.Type)
 	}
 	if c.Cert.AutoTLS && c.Cert.Domain == "" {
 		return fmt.Errorf("cert.domain is required when cert.auto_tls is enabled")
