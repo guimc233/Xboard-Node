@@ -178,7 +178,8 @@ func TestGeneratedConfigsAreAcceptedByRealMihomo(t *testing.T) {
 				Kernel:             config.KernelConfig{ConfigDir: home},
 				ExternalController: "127.0.0.1:29090",
 				Secret:             "test-secret",
-				LogLevel:           "warning",
+				// The agent's own default, which mihomo rejects verbatim.
+				LogLevel: "warn",
 			})
 			if err != nil {
 				t.Fatalf("BuildConfig: %v", err)

@@ -282,3 +282,50 @@ func TestBuildConfigMergesLocalOverride(t *testing.T) {
 		t.Errorf("local proxies must be appended, got %#v", proxies)
 	}
 }
+
+func TestNormalizeLogLevelMapsAgentVocabulary(t *testing.T) {
+	// mihomo only accepts these five values.
+	accepted := map[string]bool{"silent": true, "error": true, "warning": true, "info": true, "debug": true}
+
+	cases := map[string]string{
+		"warn":    "warning", // the agent's own default; mihomo rejects it verbatim
+		"warning": "warning",
+		"WARN":    "warning",
+		" warn ":  "warning",
+		"info":    "info",
+		"":        "warning",
+		"debug":   "debug",
+		"error":   "error",
+		"fatal":   "error",
+		"silent":  "silent",
+		"trace":   "debug",
+		"bogus":   "warning",
+	}
+	for input, want := range cases {
+		got := normalizeLogLevel(input)
+		if got != want {
+			t.Errorf("normalizeLogLevel(%q) = %q, want %q", input, got, want)
+		}
+		if !accepted[got] {
+			t.Errorf("normalizeLogLevel(%q) = %q, which mihomo does not accept", input, got)
+		}
+	}
+}
+
+func TestBuildConfigNeverEmitsAnInvalidLogLevel(t *testing.T) {
+	accepted := map[string]bool{"silent": true, "error": true, "warning": true, "info": true, "debug": true}
+
+	// Every value the agent can be configured with, plus the node-level override.
+	for _, level := range []string{"", "warn", "warning", "info", "debug", "error", "silent", "trace", "nonsense"} {
+		spec := testSpec(model.MihomoUsersMap)
+		spec.KernelLogLevel = level
+		doc, err := BuildConfig(spec, testUsers(), kernel.TLSCert{}, Options{LogLevel: level})
+		if err != nil {
+			t.Fatalf("BuildConfig(%q): %v", level, err)
+		}
+		got, _ := doc["log-level"].(string)
+		if !accepted[got] {
+			t.Errorf("log-level %q (from %q) is not accepted by mihomo", got, level)
+		}
+	}
+}

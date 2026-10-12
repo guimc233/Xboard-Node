@@ -99,7 +99,7 @@ func BuildConfig(spec *model.NodeSpec, users []model.UserSpec, tls kernel.TLSCer
 func baseConfig(spec *model.NodeSpec, opts Options) map[string]any {
 	doc := map[string]any{
 		"mode":      "rule",
-		"log-level": firstNonEmpty(opts.LogLevel, spec.KernelLogLevel, "warning"),
+		"log-level": normalizeLogLevel(firstNonEmpty(opts.LogLevel, spec.KernelLogLevel)),
 		"ipv6":      true,
 		"allow-lan": true,
 		// A proxy node serves listeners; it must not also open the local
@@ -326,4 +326,27 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// normalizeLogLevel translates the agent's log level vocabulary into the set
+// mihomo accepts: silent, error, warning, info, debug.
+//
+// This is not cosmetic. The agent's own default is `warn`, and mihomo rejects
+// that outright with "invalid log-level" — it then refuses the entire config,
+// so `mihomo -t` fails and the node never starts.
+func normalizeLogLevel(level string) string {
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "silent", "off", "none", "disabled":
+		return "silent"
+	case "error", "fatal", "panic", "critical":
+		return "error"
+	case "warn", "warning":
+		return "warning"
+	case "info", "notice":
+		return "info"
+	case "debug", "trace", "verbose":
+		return "debug"
+	default:
+		return "warning"
+	}
 }
