@@ -136,6 +136,16 @@ func NodeSpecFromPanel(nc *panel.NodeConfig) *NodeSpec {
 	ruleSets := make([]RuleSet, 0, len(nc.RuleSets))
 	for _, ruleSet := range nc.RuleSets {
 		converted := RuleSet{Tag: ruleSet.Tag}
+		if ruleSet.Mihomo != nil {
+			converted.Mihomo = &MihomoRuleSet{
+				Type: ruleSet.Mihomo.Type, Behavior: ruleSet.Mihomo.Behavior,
+				Format: ruleSet.Mihomo.Format, URL: ruleSet.Mihomo.URL,
+				Path: ruleSet.Mihomo.Path, Interval: ruleSet.Mihomo.Interval,
+				Proxy: ruleSet.Mihomo.Proxy, SizeLimit: ruleSet.Mihomo.SizeLimit,
+				Header:  cloneStringSliceMap(ruleSet.Mihomo.Header),
+				Payload: cloneStringSlice(ruleSet.Mihomo.Payload),
+			}
+		}
 		if ruleSet.Singbox != nil {
 			converted.Singbox = &SingboxRuleSet{
 				Type: ruleSet.Singbox.Type, Format: ruleSet.Singbox.Format,
@@ -153,6 +163,19 @@ func NodeSpecFromPanel(nc *panel.NodeConfig) *NodeSpec {
 		ruleSets = append(ruleSets, converted)
 	}
 
+	var mihomo *MihomoConfig
+	usersShape := ""
+	if nc.Mihomo != nil {
+		mihomo = &MihomoConfig{
+			Listeners:     cloneMapSlice(nc.Mihomo.Listeners),
+			RuleProviders: cloneAnyMap(nc.Mihomo.RuleProviders),
+			Rules:         cloneStringSlice(nc.Mihomo.Rules),
+			SubRules:      cloneStringSliceMap(nc.Mihomo.SubRules),
+			Sniffer:       cloneAnyMap(nc.Mihomo.Sniffer),
+		}
+		usersShape = strings.TrimSpace(nc.Mihomo.UsersShape)
+	}
+
 	return &NodeSpec{
 		Protocol:            nc.Protocol,
 		ListenIP:            nc.ListenIP,
@@ -162,6 +185,8 @@ func NodeSpecFromPanel(nc *panel.NodeConfig) *NodeSpec {
 		Routes:              routes,
 		KernelType:          nc.KernelType,
 		KernelLogLevel:      nc.KernelLogLevel,
+		Mihomo:              mihomo,
+		UsersShape:          usersShape,
 		CustomOutbounds:     outbounds,
 		CustomRoutes:        cloneMapSlice(nc.CustomRoutes),
 		CustomRouteRules:    customRouteRules,
@@ -319,6 +344,16 @@ func (n *NodeSpec) ToPanel() *panel.NodeConfig {
 	ruleSets := make([]panel.RuleSet, 0, len(n.RuleSets))
 	for _, ruleSet := range n.RuleSets {
 		converted := panel.RuleSet{Tag: ruleSet.Tag}
+		if ruleSet.Mihomo != nil {
+			converted.Mihomo = &panel.MihomoRuleSet{
+				Type: ruleSet.Mihomo.Type, Behavior: ruleSet.Mihomo.Behavior,
+				Format: ruleSet.Mihomo.Format, URL: ruleSet.Mihomo.URL,
+				Path: ruleSet.Mihomo.Path, Interval: ruleSet.Mihomo.Interval,
+				Proxy: ruleSet.Mihomo.Proxy, SizeLimit: ruleSet.Mihomo.SizeLimit,
+				Header:  cloneStringSliceMap(ruleSet.Mihomo.Header),
+				Payload: cloneStringSlice(ruleSet.Mihomo.Payload),
+			}
+		}
 		if ruleSet.Singbox != nil {
 			converted.Singbox = &panel.SingboxRuleSet{
 				Type: ruleSet.Singbox.Type, Format: ruleSet.Singbox.Format,
@@ -336,6 +371,18 @@ func (n *NodeSpec) ToPanel() *panel.NodeConfig {
 		ruleSets = append(ruleSets, converted)
 	}
 
+	var mihomo *panel.MihomoConfig
+	if n.Mihomo != nil {
+		mihomo = &panel.MihomoConfig{
+			Listeners:     cloneMapSlice(n.Mihomo.Listeners),
+			RuleProviders: cloneAnyMap(n.Mihomo.RuleProviders),
+			Rules:         cloneStringSlice(n.Mihomo.Rules),
+			SubRules:      cloneStringSliceMap(n.Mihomo.SubRules),
+			Sniffer:       cloneAnyMap(n.Mihomo.Sniffer),
+			UsersShape:    n.UsersShape,
+		}
+	}
+
 	return &panel.NodeConfig{
 		Protocol:            n.Protocol,
 		ListenIP:            n.ListenIP,
@@ -345,6 +392,7 @@ func (n *NodeSpec) ToPanel() *panel.NodeConfig {
 		Routes:              routes,
 		KernelType:          n.KernelType,
 		KernelLogLevel:      n.KernelLogLevel,
+		Mihomo:              mihomo,
 		CustomOutbounds:     outbounds,
 		OutboundTemplates:   outboundTemplates,
 		CustomRoutes:        cloneMapSlice(n.CustomRoutes),

@@ -100,6 +100,8 @@ func ResolveKernelForTransport(network, configuredKernel string) string {
 
 func normalizeKernelType(value string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "mihomo", "clash", "clashmeta", "clash-meta", "clash.meta", "meta":
+		return "mihomo", nil
 	case "singbox", "sing-box":
 		return "singbox", nil
 	case "xray":

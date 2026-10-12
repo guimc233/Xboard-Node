@@ -22,6 +22,12 @@ type NodeSpec struct {
 	AutoTLS          bool
 	Domain           string
 
+	// Mihomo is the panel-generated mihomo document fragment (listeners,
+	// rule-providers, rules, sub-rules, sniffer). Nil for legacy payloads.
+	Mihomo *MihomoConfig
+	// UsersShape is the `users` container the active listener expects.
+	UsersShape string
+
 	Cipher    string
 	Plugin    string
 	PluginOpt string
@@ -68,9 +74,41 @@ type RouteProfile struct {
 
 type RuleSet struct {
 	Tag     string
+	Mihomo  *MihomoRuleSet
 	Singbox *SingboxRuleSet
 	Xray    *XrayRuleSet
 }
+
+// MihomoRuleSet is one mihomo `rule-providers` entry.
+type MihomoRuleSet struct {
+	Type      string
+	Behavior  string
+	Format    string
+	URL       string
+	Path      string
+	Interval  int
+	Proxy     string
+	SizeLimit int
+	Header    map[string][]string
+	Payload   []string
+}
+
+// MihomoConfig is the mihomo document fragment produced by the panel.
+type MihomoConfig struct {
+	Listeners     []map[string]any
+	RuleProviders map[string]any
+	Rules         []string
+	SubRules      map[string][]string
+	Sniffer       map[string]any
+}
+
+// MihomoUsersShape enumerates the `users` container shapes mihomo accepts.
+const (
+	MihomoUsersMap               = "map"
+	MihomoUsersArrayUserPassword = "array_user_password"
+	MihomoUsersArrayUUID         = "array_uuid"
+	MihomoUsersArrayPassword     = "array_password"
+)
 
 type SingboxRuleSet struct {
 	Type           string
@@ -162,6 +200,17 @@ func cloneMapSlice(src []map[string]any) []map[string]any {
 	out := make([]map[string]any, 0, len(src))
 	for _, item := range src {
 		out = append(out, cloneAnyMap(item))
+	}
+	return out
+}
+
+func cloneStringSliceMap(src map[string][]string) map[string][]string {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make(map[string][]string, len(src))
+	for key, values := range src {
+		out[key] = cloneStringSlice(values)
 	}
 	return out
 }
